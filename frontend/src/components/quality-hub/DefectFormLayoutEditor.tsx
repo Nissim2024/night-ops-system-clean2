@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, normalizeLayout, TOP_PANEL_COUNT, keepPairsTogether, pairPartnerOf, pairUp } from './openProdDefectsFields';
+import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, normalizeLayout, TOP_PANEL_COUNT, keepPairsTogether, pairPartnerOf, pairUp, isSideBySidePair, ALWAYS_WIDE_FIELDS } from './openProdDefectsFields';
 import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -185,13 +185,13 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
                       <button className={btn} title="למטה (מאוחר יותר)" disabled={fi === p.fields.length - 1}
                         onClick={() => update(l => shiftField(l, pi, f, 1))}>▼</button>
                       {pairPartnerOf(f) && p.fields.includes(pairPartnerOf(f)!) && (
-                        <span className="shrink-0 cursor-help" title={`צמוד ל-${label(pairPartnerOf(f)!)} — תמיד זה לצד זה, זזים יחד`}>🔗</span>
+                        <span className="shrink-0 cursor-help" title={isSideBySidePair(f) ? `צמוד ל-${label(pairPartnerOf(f)!)} — תמיד זה לצד זה, זזים יחד` : `קשור ל-${label(pairPartnerOf(f)!)} — Project בשורה שמעל, CR/HBR בשורה מלאה; זזים יחד`}>🔗</span>
                       )}
                       <button
                         className={btn}
-                        disabled={!!pairPartnerOf(f) && p.fields.includes(pairPartnerOf(f)!)}
-                        title={p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
-                        style={p.wide?.includes(f) ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC' } : undefined}
+                        disabled={ALWAYS_WIDE_FIELDS.has(f) || (isSideBySidePair(f) && p.fields.includes(pairPartnerOf(f)!))}
+                        title={ALWAYS_WIDE_FIELDS.has(f) ? 'תמיד בשורה מלאה' : p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
+                        style={p.wide?.includes(f) || ALWAYS_WIDE_FIELDS.has(f) ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC', opacity: 1 } : undefined}
                         onClick={() => update(l => toggleWide(l.panels[pi], f))}
                       >↔</button>
                       {draft!.panels.length > 1 && (
@@ -233,7 +233,7 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
         <div className="mt-1 text-xs leading-relaxed text-subtle-foreground">
           קובעים אילו שדות יופיעו בטופס תצוגת/עדכון התקלה, באיזה סדר, ובאילו חלוניות. משתמש מקבל את תבנית הצוות שלו; אם אין — את תבנית התפקיד; אם אין — את ברירת המחדל.
           החלוניות והשדות מוצגים כאן כמו בטופס עצמו: הראשון משמאל. Title, Description ו-Comments קבועים מחוץ לחלוניות.
-          להעברת שדה בין חלוניות: גרור אותו לחלונית אחרת (או למקום בין שדות), או בחר "העבר ל…" בשדה עצמו. 🔗 = שדות קשורים (Release+Cycle, Environment+Component, Responsibility+Assigned To, CR+Project, Detected By+Date) — מוצגים תמיד זה לצד זה וזזים יחד.
+          להעברת שדה בין חלוניות: גרור אותו לחלונית אחרת (או למקום בין שדות), או בחר "העבר ל…" בשדה עצמו. 🔗 = שדות קשורים (Release+Cycle, Environment+Component, Responsibility+Assigned To, Detected By+Date) — מוצגים תמיד זה לצד זה וזזים יחד; CR/HBR Number reference תמיד בשורה מלאה ו-Project בשורה שמעליו.
           מבנה הטופס: עד 3 חלוניות עליונות זו לצד זו, ומתחתן חלונית רחבה ("שדות נוספים") לשדות הפחות שכיחים — ⬇/⬆ בכותרת החלונית קובע אם היא עליונה או רחבה מתחת.
           אותה תבנית משמשת גם לפתיחת תקלה חדשה, באותם מקומות (שם החלונית הרחבה מקופלת). שדות חובה של QC מסומנים * בשני הטפסים.
         </div>

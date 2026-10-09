@@ -194,12 +194,21 @@ export const FIELD_PAIRS: [string, string][] = [
   ['targetRelease', 'targetCycle'],
   ['environment', 'environmentComponent'],
   ['responsibility', 'assignedTo'],
-  ['crHbrNumberReference', 'system'],
 ];
+// Kept together too, but one above the other (user, 2026-10-10): CR/HBR
+// Number reference always takes a full row of its own, its Project sits
+// right before it — at the end of the row above.
+export const STACKED_PAIRS: [string, string][] = [
+  ['system', 'crHbrNumberReference'],
+];
+export const ALWAYS_WIDE_FIELDS = new Set(['crHbrNumberReference']);
+const ALL_PAIRS: [string, string][] = [...FIELD_PAIRS, ...STACKED_PAIRS];
+// the related field (side by side or stacked)
 export const pairPartnerOf = (f: string): string | null => {
-  const p = FIELD_PAIRS.find(([a, b]) => a === f || b === f);
+  const p = ALL_PAIRS.find(([a, b]) => a === f || b === f);
   return p ? (p[0] === f ? p[1] : p[0]) : null;
 };
+export const isSideBySidePair = (f: string) => FIELD_PAIRS.some(([a, b]) => a === f || b === f);
 // fields → render items: a field, or a pair [first, second] when both are there
 export function pairUp(fields: string[]): (string | [string, string])[] {
   const out: (string | [string, string])[] = [];
@@ -219,7 +228,7 @@ export function pairUp(fields: string[]): (string | [string, string])[] {
 // just moved in the layout editor: its partner follows it; otherwise the
 // pair's first field stays and the second joins it. Mutates `panels`.
 export function keepPairsTogether<P extends { fields: string[]; wide?: string[] }>(panels: P[], moved?: string): P[] {
-  for (const [a, b] of FIELD_PAIRS) {
+  for (const [a, b] of ALL_PAIRS) {
     const pa = panels.find(p => p.fields.includes(a));
     const pb = panels.find(p => p.fields.includes(b));
     if (!pa || !pb) continue;
@@ -229,7 +238,7 @@ export function keepPairsTogether<P extends { fields: string[]; wide?: string[] 
     otherP.fields.splice(otherP.fields.indexOf(other), 1);
     const i = anchorP.fields.indexOf(anchor);
     anchorP.fields.splice(anchorIsB ? i : i + 1, 0, other);
-    for (const p of [pa, pb]) if (p.wide) p.wide = p.wide.filter(x => x !== a && x !== b);
+    if (FIELD_PAIRS.some(([x]) => x === a)) for (const p of [pa, pb]) if (p.wide) p.wide = p.wide.filter(x => x !== a && x !== b);
   }
   return panels;
 }
@@ -247,7 +256,7 @@ export function withRequiredFields<P extends { fields: string[] }>(panels: P[]):
     const partnerPanel = partner ? out.find(p => p.fields.includes(partner)) : undefined;
     if (partner && partnerPanel) {
       const i = partnerPanel.fields.indexOf(partner);
-      partnerPanel.fields.splice(FIELD_PAIRS.some(([a]) => a === f) ? i : i + 1, 0, f);
+      partnerPanel.fields.splice(ALL_PAIRS.some(([a]) => a === f) ? i : i + 1, 0, f);
       present.add(f);
       continue;
     }

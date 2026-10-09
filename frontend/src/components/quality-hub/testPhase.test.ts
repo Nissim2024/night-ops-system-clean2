@@ -38,9 +38,9 @@ describe('withRequiredFields', () => {
   ];
   it('adds a missing required field next to its built-in neighbour', () => {
     const l = layout();
-    l[0].fields = l[0].fields.filter(f => f !== 'crHbrNumberReference');   // CR/HBR is added in front of its partner
+    l[0].fields = l[0].fields.filter(f => f !== 'crHbrNumberReference');   // CR/HBR is added right after its partner Project
     const out = withRequiredFields(l);
-    expect(out[1].fields).toEqual(['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'testPhase', 'environmentComponent', 'crHbrNumberReference', 'system', 'subModule']);
+    expect(out[1].fields).toEqual(['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'testPhase', 'environmentComponent', 'system', 'crHbrNumberReference', 'subModule']);
     expect(out.flatMap(p => p.fields).filter(f => f === 'system')).toHaveLength(1);
   });
   it('every required field ends up in the form, nothing is duplicated', () => {
@@ -97,10 +97,17 @@ describe('field pairs', () => {
     expect(l[0].fields).toEqual(['x']);
     expect(l[1].fields).toEqual(['y', 'environment', 'environmentComponent']);
   });
-  it('a required field joins its partner (Project next to CR/HBR)', () => {
+  it('a required field joins its partner (Project right before CR/HBR)', () => {
     const out = withRequiredFields([{ name: 'A', fields: ['severity', 'crHbrNumberReference', 'priority'] }, { name: 'B', fields: ['detectedBy'] }]);
     const a = out[0].fields;
-    expect(a[a.indexOf('crHbrNumberReference') + 1]).toBe('system');
+    expect(a[a.indexOf('crHbrNumberReference') - 1]).toBe('system');
+  });
+  it('CR/HBR + Project are never rendered side by side, but kept together with Project first', () => {
+    expect(pairUp(['crHbrNumberReference', 'system'])).toEqual(['crHbrNumberReference', 'system']);
+    const l = [{ name: 'A', fields: ['crHbrNumberReference', 'x'], wide: ['crHbrNumberReference'] }, { name: 'B', fields: ['system'] }];
+    keepPairsTogether(l);
+    expect(l[1].fields).toEqual(['system', 'crHbrNumberReference']);
+    expect(l[0].wide).toEqual(['crHbrNumberReference']);
   });
   it('an older layout comes out with its pairs together', () => {
     const out = normalizeLayout([{ name: 'A', fields: ['detectedInRelease', 'severity', 'detectedInCycle'] }]);

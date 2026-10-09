@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels, normalizeLayout, pairUp } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels, normalizeLayout, pairUp, ALWAYS_WIDE_FIELDS } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -785,7 +785,7 @@ export const DefectFieldGrid: React.FC<{
       }
       const sp = special?.(item);
       if (sp) return <div key={item} style={{ gridColumn: '1 / -1', gridRow: 'span 2' }}>{sp}</div>;
-      return <DefectFieldCell key={item} fieldKey={item} wide={!!wide?.includes(item)} ctx={ctx} />;
+      return <DefectFieldCell key={item} fieldKey={item} wide={!!wide?.includes(item) || ALWAYS_WIDE_FIELDS.has(item)} ctx={ctx} />;
     })}
   </div>
 );
