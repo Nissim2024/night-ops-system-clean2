@@ -127,7 +127,7 @@ export const DETAIL_FIELD_LABEL: Record<string, string> = Object.fromEntries(DET
 // `wide` = fields that take a full row of their panel (long values).
 export const DEFAULT_OPEN_PROD_DETAIL_GROUPS: { title: string; fields: string[]; wide?: string[] }[] = [
   { title: 'זיהוי', fields: ['id', 'status', 'severity', 'priority', 'secondaryPriority', 'defectType', 'category', 'itemType'] },
-  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'detectedApkVersion', 'detectedHotAppApk', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
+  { title: 'גילוי', fields: ['detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle', 'testPhase', 'detectedApkVersion', 'detectedHotAppApk', 'reproducible', 'environment', 'environmentComponent', 'system', 'platform', 'subModule', 'mainModule', 'systemComponent'] },
   { title: 'אחריות', fields: ['assignedTo', 'qaTester', 'responsibility', 'defectResponsible', 'escDefectResponsible', 'vendorAssignTo', 'vendorStatus'] },
   { title: 'טיפול ותיקון', fields: ['fixType', 'estimatedFixTime', 'actualFixTime', 'estimateFixTime', 'fixedUntil', 'fixedInProd', 'closedBy', 'reopenYn', 'supportStatus', 'supportReferenceNumber', 'responseDate'] },
   { title: 'יעד וגרסה', fields: ['targetRelease', 'targetCycle', 'targetHotAppApk', 'targetType', 'targetReleaseReason', 'targetScopeApproved', 'crStatus', 'crReferenceNumber', 'crHbrNumberReference', 'dropNumber', 'releaseDefect'], wide: ['crHbrNumberReference'] },
@@ -147,7 +147,9 @@ export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAp
   // release/cycle pairs + team component (2026-10-08) - a pair is never shown half
   'detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle', 'environmentComponent',
   // QC-required, release-scoped pickers (2026-10-09)
-  'crHbrNumberReference', 'system'];
+  'crHbrNumberReference', 'system',
+  // filled by the cycle (2026-10-09)
+  'testPhase'];
 
 // ── New-defect form (2026-10-09) ─────────────────────────────────────────
 // The create form uses the same layout as the update form; per panel the
@@ -162,6 +164,22 @@ export const DEFAULT_CREATE_FIELDS = new Set([
   'status', 'assignedTo', 'qaTester', 'defectType', 'testPhase', 'environmentComponent', 'reproducible',
   'detectedApkVersion', 'detectedHotAppApk', 'subModule', 'mainModule', 'platform',
 ]);
+// ── Test Phase follows the cycle (user, 2026-10-09) ─────────────────────
+// production defect → Production; Cycle 0 → Integration Test; Cycle 1-4,
+// UAT, Stand Alone Items → System Test; Dress Rehearsal (any spelling QC
+// has) / Go Live → Sanity Test; a cycle named Production → Production;
+// anything else (Automation, SHOTEF…) → no rule, the user chooses.
+export function testPhaseFor(cycle: string, environment: string): string | null {
+  if (/prod/i.test(environment ?? '')) return 'Production';
+  const c = (cycle ?? '').trim();
+  if (!c) return null;
+  if (/^cycle\s*0$/i.test(c)) return 'Integration Test';
+  if (/^cycle\s*[1-4]$/i.test(c) || /^uat$/i.test(c) || /^stand\s*alone/i.test(c)) return 'System Test';
+  if (/^dress\s*re/i.test(c) || /^go\s*live$/i.test(c)) return 'Sanity Test';
+  if (/^production$/i.test(c)) return 'Production';
+  return null;
+}
+
 export function createFieldsOf(panel: { fields: string[]; create?: string[] }): string[] {
   return panel.fields.filter(f => CREATE_REQUIRED_FIELDS.has(f)
     || (panel.create ? panel.create.includes(f) : DEFAULT_CREATE_FIELDS.has(f)));

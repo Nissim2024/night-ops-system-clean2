@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, BUILTIN_ALWAYS_SHOWN_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -973,7 +973,22 @@ export const DefectDetailScreen: React.FC<{
     setEditingField(null); setPendingEdits({}); setPendingRefEdits({}); setInlineMsg(null); setNewComment(null);
   };
 
+  // Test Phase follows the cycle / production — only when the user changes
+  // the cycle or the Environment; shown as a pending change (2026-10-09)
+  const syncTestPhase = (cycle: string, environment: string) => {
+    const tp = testPhaseFor(cycle, environment);
+    if (!tp) return;
+    setPendingEdits(prev => {
+      const next = { ...prev };
+      if (tp === String((detail as any)?.testPhase ?? '').trim()) delete next.testPhase; else next.testPhase = tp;
+      return next;
+    });
+  };
+
   const commitInlineField = (key: string, value: string) => {
+    if (key === 'environment') {
+      syncTestPhase(pendingRefEdits.detectedInCycle?.label ?? String((detail as any)?.detectedInCycle ?? ''), value);
+    }
     if (key === 'crHbrNumberReference' && value && !(pendingEdits.system ?? String((detail as any)?.system ?? '')).trim()) {
       const release = pendingRefEdits.detectedInRelease?.label ?? String((detail as any)?.detectedInRelease ?? '');
       singleProjectForCr(headers, release, value).then(p => { if (p) setPendingEdits(prev => (prev.system ? prev : { ...prev, system: p })); });
@@ -989,6 +1004,7 @@ export const DefectDetailScreen: React.FC<{
 
   // a release and its cycle are always sent together (the server checks the pair)
   const commitRefPair = (relKey: string, cycKey: string, rel: RefValue, cyc: RefValue) => {
+    if (cycKey === 'detectedInCycle') syncTestPhase(cyc.label, pendingEdits.environment ?? String((detail as any)?.environment ?? ''));
     const same = (k: string, v: RefValue) => v.label.trim() === String((detail as any)?.[k] ?? '').trim();
     setPendingRefEdits(prev => {
       const next = { ...prev };

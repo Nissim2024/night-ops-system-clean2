@@ -8,7 +8,7 @@ import {
   DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
 } from './OpenProdDefectsView';
 import {
-  DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL,
+  DEFAULT_OPEN_PROD_DETAIL_GROUPS, ATTACHMENTS_FIELD, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL, testPhaseFor,
 } from './openProdDefectsFields';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -169,7 +169,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   const shownPanels = groups.map(p => ({ ...p, fields: createFieldsOf(p) })).filter(p => p.fields.length > 0);
   const shownSet = new Set(shownPanels.flatMap(p => p.fields));
   // required fields the layout left out still have to be there
-  const requiredOutside = Array.from(CREATE_REQUIRED_FIELDS).filter(f => !shownSet.has(f));
+  const requiredOutside = [...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase'].filter(f => !shownSet.has(f));
   const moreFields = groups.flatMap(p => p.fields).filter(f => !shownSet.has(f) && !CREATE_REQUIRED_FIELDS.has(f) && f !== 'id');
 
   const me = (() => { try { return localStorage.getItem('deploycenter_fullName') ?? ''; } catch { return ''; } })();
@@ -188,10 +188,11 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     required: CREATE_REQUIRED_FIELDS,
     missing,
     editingField, setEditingField,
-    commitField: (k, v) => { touched.current = true; if (k === 'system') projectAuto.current = false; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
+    commitField: (k, v) => { touched.current = true; if (k === 'system') projectAuto.current = false; if (k === 'testPhase') testPhaseManual.current = true; setValues(prev => ({ ...prev, [k]: v })); setEditingField(null); setMissing(m => { const n = new Set(m); n.delete(k); return n; }); },
     commitPair: (rk, ck, rel, cyc) => {
       touched.current = true;
-      if (rk === 'detectedInRelease') { setReleaseManual(true); setRelReason('נבחרה ידנית'); }
+      // only picking another release counts as a manual release choice (not just the cycle)
+      if (rk === 'detectedInRelease' && rel.id !== refValues.detectedInRelease?.id) { setReleaseManual(true); setRelReason('נבחרה ידנית'); }
       setRefValues(prev => ({ ...prev, [rk]: rel, [ck]: cyc }));
       setEditingField(null);
       setMissing(m => { const n = new Set(m); n.delete(rk); n.delete(ck); return n; });
@@ -214,6 +215,23 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
     return () => { alive = false; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cr]);
+
+  // Test Phase follows the cycle / production (testPhaseFor); a value the
+  // user picked is kept until the cycle or the Environment changes again
+  const testPhaseManual = useRef(false);
+  const cycleLabel = refValues.detectedInCycle?.label ?? '';
+  useEffect(() => { testPhaseManual.current = false; }, [cycleLabel, isProd]);
+  const autoTestPhase = testPhaseFor(cycleLabel, values.environment ?? '');
+  useEffect(() => {
+    if (testPhaseManual.current) return;
+    setValues(v => {
+      const next = autoTestPhase ?? '';
+      if ((v.testPhase ?? '') === next) return v;
+      const out = { ...v };
+      if (next) out.testPhase = next; else delete out.testPhase;
+      return out;
+    });
+  }, [autoTestPhase]);
 
   // ── leave guard (2026-10-09) ────────────────────────────────────────────
   const typedCount = !createdIdPendingAttachments
@@ -309,7 +327,8 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
         <div className="rounded-md px-4 py-2 text-[13px]" style={{ background: refValues.detectedInRelease ? '#eef4ff' : C.warningBg, color: JIRA.text }}>
           📍 {refValues.detectedInRelease
             ? <>גרסת הגילוי: <b dir="ltr">{refValues.detectedInRelease.label}</b>{refValues.detectedInCycle ? <> · סבב <b dir="ltr">{refValues.detectedInCycle.label}</b></> : null} — {relReason}
-              {!refValues.detectedInCycle && <span className="font-semibold" style={{ color: C.warning }}> · בחר סבב בשדה Detected in Cycle</span>}</>
+              {!refValues.detectedInCycle && <span className="font-semibold" style={{ color: C.warning }}> · בחר סבב בשדה Detected in Cycle</span>}
+              {values.testPhase && autoTestPhase === values.testPhase && <> · Test Phase <b dir="ltr">{values.testPhase}</b> ({isProd ? 'תקלת ייצור' : `לפי סבב ${cycleLabel}`})</>}</>
             : <>{relReason}</>}
         </div>
       )}
@@ -317,7 +336,7 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       {/* the same panels, fields and pickers as the update form */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
         {shownPanels.map((p, i) => panelCard(p.name, fieldGrid(p.fields, p.wide), `p${i}`))}
-        {requiredOutside.length > 0 && panelCard('שדות חובה', fieldGrid(requiredOutside), 'req')}
+        {requiredOutside.length > 0 && panelCard('שדות לפתיחת תקלה', fieldGrid(requiredOutside), 'req')}
       </div>
 
       {moreFields.length > 0 && (
