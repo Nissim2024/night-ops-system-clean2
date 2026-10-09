@@ -1,10 +1,10 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
 import { PrismaClient } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
 import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
-import { getQcPersonDirectory, getReleaseCycleOptions } from './qc.service';
+import { getQcPersonDirectory, getReleaseCycleOptions, getDefectLock } from './qc.service';
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 
@@ -947,6 +947,12 @@ export class QcRestService {
     if (status && !config.bugStatusField) {
       throw new BadRequestException('שדה ה-Bug Status (QC_REST_BUG_STATUS_FIELD) עדיין לא הוגדר — לא ניתן לעדכן סטטוס');
     }
+    // someone has it open in QC (LOCKS table — cheap, before any QC login)
+    const tableLock = await getDefectLock(defectId).catch(() => null);
+    if (tableLock?.locked && tableLock.by) {
+      const me = await this.resolveQcLogin(userId).catch(() => '');
+      if (tableLock.by.toLowerCase() !== me.toLowerCase()) throw await this.defectLockedError(tableLock.by, tableLock.since);
+    }
     const qcLogin = await this.resolveQcLogin(userId);
     const fullName = await this.resolveFullName(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
@@ -957,6 +963,9 @@ export class QcRestService {
       if (getRes.status === 404) throw new BadRequestException(`תקלה ${defectId} לא נמצאה ב-QC`);
       if (getRes.status !== 200) throw new BadRequestException(`שגיאה בקריאת תקלה מ-QC (status ${getRes.status})`);
       const current = parseFields(getRes.data);
+      // open for editing by someone else in QC → stop before writing anything (2026-10-09)
+      const lock = await this.restLockStatus(config, cookie, defectId);
+      if (lock.lockedByOther) throw await this.defectLockedError(lock.user);
       const payload: Record<string, string> = { ...restFields };
       if (status && status !== (current[config.bugStatusField] ?? '')) payload[config.bugStatusField] = status;
       if (comment) payload[COMMENT_FIELD] = appendQcComment(current[COMMENT_FIELD] ?? '', fullName, qcLogin, comment);
@@ -969,12 +978,53 @@ export class QcRestService {
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
       );
       if (putRes.status >= 300) {
-        throw new BadRequestException(`עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 800)}`);
+        const qcErr = parseQcError(putRes.data);
+        if (qcErr.isLock) throw await this.defectLockedError(qcErr.lockUser);
+        throw new BadRequestException(qcErr.title
+          ? `QC דחה את העדכון: ${qcErr.title} — לא נכתב דבר, השינויים נשארו בטופס.`
+          : `עדכון התקלה ב-QC נכשל (status ${putRes.status}): ${String(putRes.data).slice(0, 800)}`);
       }
       return {
         ok: true, status: payload[config.bugStatusField] ?? current[config.bugStatusField] ?? null,
         commentAdded: !!comment, changedFields: [...Object.keys(fields), ...Object.keys(refFields), ...(payload[config.bugStatusField] ? ['status'] : [])],
       };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // QC's lock on one defect, as REST reports it (GET <defect>/lock, ALM's
+  // LockStatus: UNLOCKED / LOCKED_BY_ME / LOCKED_BY_OTHER + the user). Any
+  // other answer (endpoint missing on this version, error) = "don't know" —
+  // the PUT itself is then refused by QC and parseQcError recognises it.
+  private async restLockStatus(config: QcRestConfig, cookie: string, defectId: string): Promise<{ lockedByOther: boolean; user?: string; raw?: string; status?: number }> {
+    try {
+      const res = await axios.get(`${this.entityUrl(config, defectId)}/lock`, {
+        headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true, timeout: 15000,
+      });
+      const raw = typeof res.data === 'string' ? res.data : JSON.stringify(res.data);
+      if (res.status !== 200) return { lockedByOther: false, raw, status: res.status };
+      return { lockedByOther: /LOCKED_BY_OTHER/i.test(raw), user: xmlTag(raw, ['LockUser', 'User', 'UserName', 'Owner']), raw, status: res.status };
+    } catch {
+      return { lockedByOther: false };
+    }
+  }
+
+  private async defectLockedError(login?: string, since?: string): Promise<HttpException> {
+    const person = login ? ((await getQcPersonDirectory().catch(() => null)) ?? []).find(p => p.login.toLowerCase() === login.toLowerCase()) : undefined;
+    const who = person?.fullName ?? login;
+    return new HttpException({
+      statusCode: 423, code: 'DEFECT_LOCKED', lockedBy: login ?? null, lockedByName: who ?? null, lockedSince: since ?? null,
+      message: `התקלה פתוחה לעריכה${who ? ` אצל ${who}` : ' אצל משתמש אחר'} ב-QC — לא נשמר דבר. השינויים שלך שמורים; נסה שוב כשהתקלה תשוחרר.`,
+    }, 423);
+  }
+
+  // admin lab: what QC REST answers about one defect's lock (raw)
+  async probeLock(defectId: string, userId: string): Promise<{ status?: number; lockedByOther: boolean; user?: string; raw?: string }> {
+    const config = await this.getConfig();
+    const cookie = await this.loginAsUser(config, await this.resolveQcLogin(userId));
+    try {
+      return await this.restLockStatus(config, cookie, defectId);
     } finally {
       await this.logout(config, cookie);
     }
@@ -2086,6 +2136,27 @@ function xmlEscape(s: string): string {
 // (buildRequirementPayload); generalized 2026-09-20 so defect creation's
 // Target Release/Detected Cycle fields can use the same reference-value
 // shape instead of assuming a defect will accept a plain string there.
+// First matching <Tag>value</Tag> in an XML string
+function xmlTag(xml: string, tags: string[]): string | undefined {
+  for (const t of tags) {
+    const m = new RegExp(`<${t}>([^<]*)</${t}>`, 'i').exec(xml);
+    if (m && m[1].trim()) return m[1].trim();
+  }
+  return undefined;
+}
+
+// QC's REST error body (<QCRestException><Id>qccore.lock-failure</Id><Title>…)
+// → a readable title, and whether it is a lock refusal (2026-10-09).
+export function parseQcError(body: unknown): { id?: string; title?: string; isLock: boolean; lockUser?: string } {
+  const raw = typeof body === 'string' ? body : body == null ? '' : JSON.stringify(body);
+  const id = xmlTag(raw, ['Id']);
+  const title = xmlTag(raw, ['Title']) ?? xmlTag(raw, ['Message']);
+  const text = `${id ?? ''} ${title ?? ''} ${title ? '' : raw.slice(0, 500)}`;
+  const isLock = /lock/i.test(text) || /נעול/.test(text);
+  const byUser = /locked by (?:user )?['"]?([A-Za-z0-9._\-]+)/i.exec(text) ?? /user ['"]?([A-Za-z0-9._\-]+)['"]? (?:has|holds|is)/i.exec(text);
+  return { id, title, isLock, lockUser: byUser?.[1] };
+}
+
 function buildFieldsPayload(
   fields: Record<string, string>,
   entityType: string = 'defect',

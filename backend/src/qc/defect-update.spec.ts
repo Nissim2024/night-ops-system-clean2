@@ -109,3 +109,21 @@ describe('release/cycle pairs', () => {
     expect(svc.getEditableDefectFieldKeys('ADMIN').refFields).toEqual(['detectedInRelease', 'detectedInCycle', 'targetRelease', 'targetCycle']);
   });
 });
+
+import { parseQcError } from './qc-rest.service';
+
+// QC refusing a write because someone has the defect open (2026-10-09)
+describe('parseQcError', () => {
+  it('recognises a lock refusal and who holds it', () => {
+    const e = parseQcError(`<QCRestException><Id>qccore.lock-failure</Id><Title>Failed to update entity: The entity is locked by user 'yakovc'</Title></QCRestException>`);
+    expect(e.isLock).toBe(true);
+    expect(e.lockUser).toBe('yakovc');
+  });
+  it('a lock refusal without a user name is still a lock', () => {
+    expect(parseQcError('<QCRestException><Id>qccore.entity-locked</Id><Title>Entity is locked</Title></QCRestException>').isLock).toBe(true);
+  });
+  it('other refusals: readable title, not a lock', () => {
+    const e = parseQcError('<QCRestException><Id>qccore.required-field-missing</Id><Title>Required field Severity is missing</Title></QCRestException>');
+    expect(e).toMatchObject({ isLock: false, title: 'Required field Severity is missing' });
+  });
+});

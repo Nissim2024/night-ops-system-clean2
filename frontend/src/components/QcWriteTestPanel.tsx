@@ -337,6 +337,22 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
     }
   };
 
+  // QC edit locks (2026-10-09): the LOCKS table + REST's lock answer for one defect
+  const [lockProbeLoading, setLockProbeLoading] = useState(false);
+  const [lockProbe, setLockProbe] = useState<{ result?: any; error?: string } | null>(null);
+  const probeLock = async () => {
+    setLockProbeLoading(true);
+    setLockProbe(null);
+    try {
+      const res = await axios.get(`${API}/qc/rest-test/lock-probe/${encodeURIComponent(defectId.trim())}`, { headers });
+      setLockProbe({ result: res.data });
+    } catch (e: any) {
+      setLockProbe({ error: e?.response?.data?.message || e.message || 'שגיאה בבדיקת הנעילה' });
+    } finally {
+      setLockProbeLoading(false);
+    }
+  };
+
   const probeEntity = async (type: string) => {
     setEntityProbeLoading(true);
     setEntityProbe({ type });
@@ -475,7 +491,29 @@ export const QcWriteTestPanel: React.FC<{ token: string }> = ({ token }) => {
         >
           {fieldsLoading ? 'טוען...' : '🔍 הצג את כל שמות השדות (אבחון)'}
         </Button>
+        <Button
+          variant="secondary"
+          onClick={probeLock}
+          disabled={lockProbeLoading || !defectId.trim()}
+          title="טבלת הנעילות של QC (LOCKS) + מה ש-REST מחזיר על נעילת התקלה — לאימות זיהוי 'תקלה פתוחה לעריכה אצל משתמש אחר'"
+        >
+          {lockProbeLoading ? 'בודק...' : '🔒 בדיקת נעילה (אבחון)'}
+        </Button>
       </div>
+
+      {lockProbe && (
+        <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-2">
+          <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+            בדיקת נעילה עבור תקלה <DefectIdBadge id={defectId} />
+          </div>
+          <div className="text-xs text-muted-foreground">
+            פתח את התקלה לעריכה ב-QC אצל משתמש אחר והרץ שוב: "resolved.locked" צריך להיות true עם שם המשתמש, ו-rest.lockedByOther=true.
+          </div>
+          <pre className="max-h-[420px] overflow-auto rounded-md border border-border bg-muted p-2 text-[11px] leading-snug" dir="ltr">
+            {lockProbe.error ?? JSON.stringify(lockProbe.result, null, 2)}
+          </pre>
+        </div>
+      )}
 
       {allFields && (
         <div className="bg-card border border-border rounded-lg p-4 flex flex-col gap-2">

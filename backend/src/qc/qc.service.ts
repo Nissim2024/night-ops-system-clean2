@@ -2088,6 +2088,85 @@ export async function getTeamEnvironmentComponents(): Promise<{ teams: { name: s
   return { teams: out, all: [...all].sort((a, b) => a.localeCompare(b)) };
 }
 
+// ── QC edit locks (user, 2026-10-09) ───────────────────────────────────────
+// A user standing on a defect in the QC client locks it; any other write is
+// refused until they leave it. QC keeps those locks in the project schema's
+// LOCKS table — read here (cheap, no REST login) so the form can say "open
+// for editing by X" before the user starts. The column names are the
+// standard ALM ones (LK_OBJECT_TYPE / LK_OBJECT_KEY / LK_USER / LK_TIME) but
+// NOT yet confirmed on this instance: the row is read generically, and any
+// Oracle error = "unavailable" (the save-time REST check still applies).
+// probeLocksTable (admin lab) shows the real table to confirm it.
+export interface DefectLock { locked: boolean; by?: string; byName?: string; since?: string; source: 'oracle' | 'dev' | 'unavailable'; error?: string }
+
+const DEFECT_LOCK_SQL = `SELECT * FROM LOCKS WHERE LK_OBJECT_TYPE IN ('BUG', 'DEFECT') AND TO_CHAR(LK_OBJECT_KEY) = :defectId`;
+
+function lockFromRow(row: Record<string, any>): { by?: string; since?: string } {
+  const cols = Object.keys(row);
+  const userCol = cols.find(c => /USER/i.test(c));
+  const timeCol = cols.find(c => /TIME|DATE/i.test(c));
+  const t = timeCol ? row[timeCol] : null;
+  return {
+    by: userCol && row[userCol] != null ? String(row[userCol]).trim() : undefined,
+    since: t instanceof Date ? t.toISOString() : t != null ? String(t) : undefined,
+  };
+}
+
+async function withPersonName(lock: DefectLock): Promise<DefectLock> {
+  if (!lock.by) return lock;
+  const person = ((await getQcPersonDirectory().catch(() => null)) ?? []).find(p => p.login.toLowerCase() === lock.by!.toLowerCase());
+  return { ...lock, byName: person?.fullName ?? lock.by };
+}
+
+export async function getDefectLock(defectId: string): Promise<DefectLock> {
+  const { enabled } = await getOracleConfig();
+  if (!enabled) {
+    // dev: seed-data/locks.local.json = { "<defectId>": { "user": "<login>", "since": "<iso>" } }
+    try {
+      const all = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'qc', 'seed-data', 'locks.local.json'), 'utf-8'));
+      const l = all[defectId];
+      return withPersonName(l ? { locked: true, by: l.user, since: l.since, source: 'dev' } : { locked: false, source: 'dev' });
+    } catch {
+      return { locked: false, source: 'dev' };
+    }
+  }
+  let conn: any;
+  try {
+    conn = await oracleConnect();
+    const res = await conn.execute(DEFECT_LOCK_SQL, { defectId: String(defectId) });
+    const row = (res.rows ?? [])[0];
+    return withPersonName(row ? { locked: true, ...lockFromRow(row), source: 'oracle' } : { locked: false, source: 'oracle' });
+  } catch (err: any) {
+    return { locked: false, source: 'unavailable', error: err.message };
+  } finally {
+    if (conn) await conn.close().catch(() => {});
+  }
+}
+
+// admin lab: the real LOCKS table (columns + a sample) and this defect's row
+export async function probeLocksTable(defectId?: string): Promise<{ columns?: string[]; sample?: any[]; forDefect?: any[]; error?: string; forDefectError?: string }> {
+  const { enabled } = await getOracleConfig();
+  if (!enabled) return { error: 'Oracle לא מוגדר בסביבה הזו' };
+  let conn: any;
+  try {
+    conn = await oracleConnect();
+    const res = await conn.execute(`SELECT * FROM LOCKS WHERE ROWNUM <= 20`);
+    const sample = (res.rows ?? []) as any[];
+    const columns = (res.metaData ?? []).map((m: any) => m.name);
+    let forDefect: any[] | undefined;
+    let forDefectError: string | undefined;
+    if (defectId) {
+      try { forDefect = ((await conn.execute(DEFECT_LOCK_SQL, { defectId: String(defectId) })).rows ?? []) as any[]; }
+      catch (e: any) { forDefectError = e.message; }
+    }
+    return { columns, sample, forDefect, forDefectError };
+  } catch (err: any) {
+    return { error: err.message };
+  } finally {
+    if (conn) await conn.close().catch(() => {});
+  }
+}
+
 // mock-mode rows for the defects module's dashboard / page / filtered list
 function mockAllDefectsRows(): AllDefectsRawRow[] {
   const real = loadRealAllBugs();

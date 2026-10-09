@@ -734,6 +734,22 @@ export const DefectDetailScreen: React.FC<{
     draftReady.current = true; setDraftOffer(null);
   };
 
+  // ── QC edit lock (user, 2026-10-09): someone standing on this defect in QC
+  // locks it — shown when the form opens, re-checked every minute, and a save
+  // QC refuses for it says who holds it (the changes stay).
+  const [lock, setLock] = useState<{ locked: boolean; by?: string; byName?: string; since?: string; source?: string } | null>(null);
+  const checkLock = useCallback(() => {
+    axios.get(`${API}/qc/defects/${encodeURIComponent(defectId)}/lock`, { headers })
+      .then(r => setLock(r.data ?? null))
+      .catch(() => {});
+  }, [defectId, headers]);
+  useEffect(() => {
+    setLock(null);
+    checkLock();
+    const t = window.setInterval(checkLock, 60_000);
+    return () => window.clearInterval(t);
+  }, [checkLock]);
+
   // An expired login: the changes stay (draft); "leave without saving" then keeps the draft too.
   const [sessionExpired, setSessionExpired] = useState(false);
 
@@ -794,7 +810,11 @@ export const DefectDetailScreen: React.FC<{
       return true;
     } catch (err: any) {
       // nothing was written — the changes stay on screen (and in the draft) to fix and retry
-      if (err?.response?.status === 401) {
+      if (err?.response?.status === 423) {
+        const d = err.response.data ?? {};
+        setLock(prev => ({ ...prev, locked: true, by: d.lockedBy ?? prev?.by, byName: d.lockedByName ?? prev?.byName, since: d.lockedSince ?? prev?.since, source: 'qc' }));
+        setInlineMsg({ kind: 'err', text: d.message || 'התקלה נעולה לעריכה ב-QC — לא נשמר דבר.' });
+      } else if (err?.response?.status === 401) {
         setSessionExpired(true);
         setInlineMsg({ kind: 'err', text: 'ההתחברות פגה — התחבר מחדש. השינויים שמורים כטיוטה ויוצעו לשחזור כשתפתח את התקלה.' });
       } else {
@@ -910,6 +930,17 @@ export const DefectDetailScreen: React.FC<{
         </div>
       </div>
 
+      {lock?.locked && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 text-[13px] text-foreground" style={{ borderColor: '#D97706', background: '#FFF7E6' }}>
+          <span>🔒 התקלה פתוחה כרגע לעריכה{lock.byName || lock.by ? <> אצל <b>{lock.byName || lock.by}</b></> : ' אצל משתמש אחר'} ב-QC
+            {lock.since ? <> (מ-{formatDateTime(lock.since)})</> : null} — שינויים לא יישמרו עד שתשוחרר.</span>
+          <button type="button" onClick={checkLock} className="cursor-pointer rounded-md border border-border bg-card px-3 py-1 text-xs">בדוק שוב</button>
+          {pendingCount > 0 && (
+            <button type="button" onClick={() => { void saveInlineEdits(); }} disabled={savingInline}
+              className="cursor-pointer rounded-md border-none bg-primary px-3 py-1 text-xs font-semibold text-white disabled:opacity-50">נסה לשמור שוב</button>
+          )}
+        </div>
+      )}
       {draftOffer && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-lg border px-4 py-2.5 text-[13px]" style={{ borderColor: JIRA.blue, background: '#eef4ff' }}>
           <span>📝 נמצאו שינויים שלא נשמרו ב-QC מ-{formatDateTime(new Date(draftOffer.at).toISOString())}

@@ -6,7 +6,7 @@ import { PersonNamesInterceptor } from './person-names.interceptor';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents } from './qc.service';
+import { QcService, isProductionEnvironment, getQcPersonDirectory, getOracleConfig, devPicklistsFromRealSeed, getReleaseCycleOptions, getTeamEnvironmentComponents, getDefectLock, probeLocksTable } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsService } from '../permissions/permissions.service';
 
@@ -522,6 +522,24 @@ export class QcController {
   async getDefectEditableFields(@Request() req: any) {
     await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
     return this.qcRestService.getEditableDefectFieldKeys(req.user?.role);
+  }
+
+  // Is this defect open for editing by someone in QC right now? (QC's LOCKS
+  // table; cheap, no REST login — the form shows it on open, 2026-10-09)
+  @Get('defects/:id/lock')
+  getDefectLock(@Param('id') id: string) {
+    return getDefectLock(id);
+  }
+
+  // admin lab: the real LOCKS table + what REST says about one defect's lock
+  @Get('rest-test/lock-probe/:id')
+  async probeDefectLock(@Request() req: any, @Param('id') id: string) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול להריץ את בדיקת הנעילות');
+    const [oracle, rest] = await Promise.all([
+      probeLocksTable(id),
+      this.qcRestService.probeLock(id, req.user.sub).catch((e: any) => ({ error: e?.response?.message || e.message })),
+    ]);
+    return { oracle, rest, resolved: await getDefectLock(id) };
   }
 
   // Release -> its cycles, for the paired release/cycle pickers (2026-10-08)
