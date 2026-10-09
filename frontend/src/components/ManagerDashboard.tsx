@@ -165,7 +165,29 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   // (Home was a tab living inside it), which wrongly highlighted הטמעות in the
   // sidebar even though Home isn't part of that module. One shared helper so
   // every call site stays correct regardless of which module it's triggered from.
-  const goHome = () => { setActiveModule('home'); setActiveTab('home'); };
+  // ── QC project of this login (2026-10-09, multi-project phase 1) ──────────
+  // In a project other than the default one only the defects module (and the
+  // admin panel) works for now; the rest comes in the next phase.
+  const [qcProjects, setQcProjects] = useState<{ key: string; displayName: string; isDefault: boolean }[]>([]);
+  useEffect(() => {
+    axios.get(`${API}/auth/qc-projects`).then(r => setQcProjects(Array.isArray(r.data) ? r.data : [])).catch(() => {});
+  }, []);
+  const currentQcProject = qcProjects.find(p => p.key === payload.qcProject) ?? qcProjects.find(p => p.isDefault) ?? null;
+  const isSecondaryProject = !!currentQcProject && !currentQcProject.isDefault;
+  const PROJECT_PHASE1_MODULES = ['defects', 'admin'];
+  const notInThisProject = () => appDialog.alert(
+    `המודול הזה יהיה זמין בפרויקט ${currentQcProject?.displayName ?? ''} בשלב הבא. כרגע זמין: מודול התקלות.`,
+    'לא זמין בפרויקט הזה', 'info',
+  );
+  useEffect(() => {
+    if (isSecondaryProject && !PROJECT_PHASE1_MODULES.includes(activeModule)) setActiveModule('defects');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSecondaryProject, activeModule]);
+
+  const goHome = () => {
+    if (isSecondaryProject) { notInThisProject(); return; }
+    setActiveModule('home'); setActiveTab('home');
+  };
 
   useSocket({
     userId: payload.sub,
@@ -681,7 +703,21 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               suggest a relationship between the two that doesn't exist. Same
               reasoning for the general Defects module (2026-09-22): it shows
               every defect across every release, not scoped to one Version. */}
-          {selectedVersion && activeModule !== 'quality-hub' && activeModule !== 'defects' && (
+          {/* the login's QC project — shown when there is more than one */}
+          {currentQcProject && qcProjects.length > 1 && (
+            <span
+              title={`פרויקט QC: ${currentQcProject.key}`}
+              style={{
+                ...TEXT.xs, fontWeight: WEIGHT.semibold, padding: '3px 10px', borderRadius: RADIUS.full,
+                color: isSecondaryProject ? C.warning : C.brand,
+                background: isSecondaryProject ? C.warningBg : C.brandDim,
+                border: `1px solid ${isSecondaryProject ? `${C.warning}55` : C.brandGlow}`,
+              }}
+            >
+              📁 {currentQcProject.displayName}
+            </span>
+          )}
+          {selectedVersion && !isSecondaryProject && activeModule !== 'quality-hub' && activeModule !== 'defects' && (
             <>
               <div style={{ width: '1px', height: '20px', background: C.border }} />
               <span
@@ -831,7 +867,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
 
         {/* ─── Sidebar (first = right in RTL) ─── */}
         <Sidebar
-          versions={versions}
+          versions={isSecondaryProject ? [] : versions}
           selectedVersionId={selectedVersionId}
           onVersionChange={handleVersionFocus}
           myTasksActive={myTasksMode}
@@ -844,6 +880,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
           onDeployTabChange={onDeployTabChange}
           activeModule={activeModule}
           onModuleChange={m => {
+            if (isSecondaryProject && !PROJECT_PHASE1_MODULES.includes(m)) { notInThisProject(); return; }
             if (m === 'version-management' && !canAccessVersionManagement) return;
             if (m === 'qa' && !canAccessQa) return;
             if (m === 'release-intelligence' && !canAccessReleaseIntelligence) return;

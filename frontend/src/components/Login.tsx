@@ -30,10 +30,22 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
   const [loading, setLoading]   = useState(false);
   const [ldapEnabled, setLdapEnabled] = useState(false);
   const [mounted, setMounted]   = useState(false);
+  // QC project of this session (2026-10-09) — the list shows DeployCenter's
+  // display names; hidden when there is only one project. The last choice is
+  // remembered in this browser.
+  const [projects, setProjects] = useState<{ key: string; displayName: string; isDefault: boolean }[]>([]);
+  const [qcProject, setQcProject] = useState<string>(() => {
+    try { return localStorage.getItem('deploycenter_qcProject') ?? ''; } catch { return ''; }
+  });
 
   useEffect(() => {
     setMounted(true);
     axios.get(`${API}/auth/config`).then(r => setLdapEnabled(!!r.data.ldapEnabled)).catch(() => {});
+    axios.get(`${API}/auth/qc-projects`).then(r => {
+      const list = Array.isArray(r.data) ? r.data : [];
+      setProjects(list);
+      setQcProject(prev => (list.some((p: any) => p.key === prev) ? prev : (list.find((p: any) => p.isDefault)?.key ?? '')));
+    }).catch(() => {});
   }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -41,11 +53,19 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
     setLoading(true);
     setError('');
     try {
-      const res = await axios.post(`${API}/auth/login`, { email: username, password });
+      const res = await axios.post(`${API}/auth/login`, { email: username, password, ...(qcProject ? { qcProject } : {}) });
       if (res.data.user?.fullName) localStorage.setItem('deploycenter_fullName', res.data.user.fullName);
+      try {
+        if (qcProject) localStorage.setItem('deploycenter_qcProject', qcProject);
+        if (res.data.qcProject?.displayName) localStorage.setItem('deploycenter_qcProjectName', res.data.qcProject.displayName);
+        else localStorage.removeItem('deploycenter_qcProjectName');
+      } catch { /* storage unavailable */ }
       onLogin(res.data.token);
-    } catch {
-      setError(ldapEnabled ? 'שם משתמש Active Directory או סיסמה שגויים' : 'אימייל או סיסמה שגויים');
+    } catch (err: any) {
+      // 403 = no access to the chosen project (the server names it)
+      setError(err?.response?.status === 403 && err?.response?.data?.message
+        ? err.response.data.message
+        : ldapEnabled ? 'שם משתמש Active Directory או סיסמה שגויים' : 'אימייל או סיסמה שגויים');
     } finally {
       setLoading(false);
     }
@@ -173,6 +193,20 @@ export const Login: React.FC<Props> = ({ onLogin }) => {
                 }
                 inputStyle={{ textAlign: 'left', paddingRight: '36px' }}
               />
+
+              {projects.length > 1 && (
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-sm font-medium" style={{ color: C.textPrimary }}>פרויקט</span>
+                  <select
+                    value={qcProject}
+                    onChange={e => setQcProject(e.target.value)}
+                    className="w-full cursor-pointer border border-border bg-card px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary"
+                    style={{ borderRadius: RADIUS.md }}
+                  >
+                    {projects.map(p => <option key={p.key} value={p.key}>{p.displayName}</option>)}
+                  </select>
+                </label>
+              )}
 
               {error && (
                 <Alert variant="danger" icon="🔑">

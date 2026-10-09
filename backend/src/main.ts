@@ -62,6 +62,7 @@ import { SystemParamsService } from './system-params/system-params.service';
 import { SuggestedRisksService } from './suggested-risks/suggested-risks.service';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
+import { runWithQcProject, ensureDefaultQcProject, listQcProjects } from './qc/qc-project-context';
 
 async function validateStartup(): Promise<void> {
   const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
@@ -176,6 +177,22 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   app.use(helmet());
+  // Every request runs as its login's QC project (JWT claim `qcProject`) —
+  // the token is only DECODED here; JwtGuard still verifies it, so a forged
+  // token never reaches a handler (2026-10-09, multi-project).
+  app.use((req: any, _res: any, next: () => void) => {
+    let projectKey: string | null = null;
+    const auth = String(req.headers?.authorization ?? '');
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : String(req.query?.token ?? '');
+    if (token) {
+      try { projectKey = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString('utf-8'))?.qcProject ?? null; } catch { projectKey = null; }
+    }
+    // the default project runs as "no project" — one cache / one context for
+    // it whether the request came from a login or a background job
+    listQcProjects()
+      .then(rows => { const p = projectKey ? rows.find(r => r.key === projectKey) : undefined; runWithQcProject(p && !p.isDefault ? p.key : null, next); })
+      .catch(() => runWithQcProject(projectKey, next));
+  });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
   const extraOrigins = process.env.CORS_ORIGINS
@@ -196,6 +213,7 @@ async function bootstrap() {
 
   const systemParams = app.get(SystemParamsService);
   await systemParams.seed();
+  await ensureDefaultQcProject();   // the existing QC settings become the default project
 
   const suggestedRisks = app.get(SuggestedRisksService);
   await suggestedRisks.seed();

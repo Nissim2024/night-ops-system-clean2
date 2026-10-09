@@ -1,3 +1,5 @@
+import { projectCacheKey } from './qc-project-context';
+
 // Short-lived shared cache for heavy QC (Oracle) reads (2026-10-07, prod was
 // slow on the testing home page, the bug dashboard and the defects module).
 //
@@ -25,7 +27,9 @@ function copyOf<T>(v: T): T {
   return v;
 }
 
-export function qcMemo<T>(key: string, fn: () => Promise<T>, ttlMs = QC_READ_TTL_MS): Promise<T> {
+export function qcMemo<T>(rawKey: string, fn: () => Promise<T>, ttlMs = QC_READ_TTL_MS): Promise<T> {
+  // each QC project has its own entries (2026-10-09, multi-project)
+  const key = projectCacheKey(rawKey);
   const now = Date.now();
   const hit = store.get(key);
   if (hit && now - hit.at < ttlMs) return (hit.p as Promise<T>).then(copyOf);

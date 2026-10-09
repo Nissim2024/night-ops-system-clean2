@@ -1,4 +1,5 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
+import { listQcProjects, userMayUseQcProject } from '../qc/qc-project-context';
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../users/users.service';
 import { LdapService } from './ldap.service';
@@ -20,7 +21,29 @@ export class AuthService {
     private ldapService: LdapService,
   ) {}
 
-  async login(email: string, password: string) {
+  // The QC project this session works on (chosen at login, 2026-10-09):
+  // none chosen = the default project; a project the user may not use is
+  // refused with its display name. It rides in the JWT as `qcProject`.
+  private async resolveQcProject(user: { id: string; role: string }, requested?: string): Promise<{ key: string; displayName: string } | null> {
+    const rows = await listQcProjects(true);
+    const project = requested ? rows.find(r => r.key === requested) : rows.find(r => r.isDefault);
+    if (!project) {
+      if (requested) throw new ForbiddenException('הפרויקט שנבחר אינו קיים');
+      return null;
+    }
+    if (!(await userMayUseQcProject(user, project))) {
+      throw new ForbiddenException(`אין לך הרשאה לפרויקט ${project.displayName}`);
+    }
+    return { key: project.key, displayName: project.displayName };
+  }
+
+  private async issueToken(user: { id: string; role: string; email: string; fullName?: string | null }, requestedProject?: string) {
+    const qcProject = await this.resolveQcProject(user, requestedProject);
+    const token = this.jwtService.sign({ sub: user.id, role: user.role, email: user.email, qcProject: qcProject?.key ?? null });
+    return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName }, qcProject };
+  }
+
+  async login(email: string, password: string, qcProject?: string) {
     const invalid = () => new UnauthorizedException('Invalid credentials');
     const isLocalAccount = LOCAL_AUTH_EMAILS.includes(email.toLowerCase());
 
@@ -33,8 +56,7 @@ export class AuthService {
         const user = await this.usersService.findByEmail(ldapUser.email);
         if (!user || !user.active) throw invalid();
 
-        const token = this.jwtService.sign({ sub: user.id, role: user.role, email: user.email });
-        return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName } };
+        return this.issueToken(user, qcProject);
       }
     }
 
@@ -45,8 +67,7 @@ export class AuthService {
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) throw invalid();
 
-    const token = this.jwtService.sign({ sub: user.id, role: user.role, email: user.email });
-    return { token, user: { id: user.id, email: user.email, role: user.role, fullName: user.fullName } };
+    return this.issueToken(user, qcProject);
   }
 
   async validateUser(id: string) {

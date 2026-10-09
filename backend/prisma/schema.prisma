@@ -1720,3 +1720,40 @@ model UserPreference {
 
   @@unique([userId, key])
 }
+
+// QC projects (2026-10-09): DeployCenter can work against more than one QC
+// project (HOT_Wizard_IRB_Main, HOTAPPS, ...). The project is chosen at
+// login and carried in the JWT; every QC read/write of that session goes to
+// it (REST domain/project, Oracle schema). `displayName` is DeployCenter's
+// own name for it — QC is never changed. A new project starts with QC
+// writes OFF until its field map is verified.
+model QcProject {
+  id           String   @id @default(uuid())
+  key          String   @unique // stable code carried in the JWT
+  displayName  String
+  domain       String
+  restProject  String
+  oracleSchema String? // null = the Oracle user's own schema (as before)
+  active       Boolean  @default(true)
+  isDefault    Boolean  @default(false)
+  writeEnabled Boolean  @default(false)
+  sortOrder    Int      @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  access QcProjectAccess[]
+}
+
+// Who may log in to a (non-default) project: a user, or every member of a team.
+// The default project is open to everyone; ADMIN may open any project.
+model QcProjectAccess {
+  id        String   @id @default(uuid())
+  projectId String
+  userId    String?
+  teamId    String?
+  createdAt DateTime @default(now())
+
+  project QcProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
+}

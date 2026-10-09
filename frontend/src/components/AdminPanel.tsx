@@ -13,6 +13,7 @@ import { DefectFormLayoutEditor } from './quality-hub/DefectFormLayoutEditor';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
+import { QcProjectsPanel } from './QcProjectsPanel';
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 const APPS = [
@@ -2336,10 +2337,12 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
               connection, per-field mappings, and publish-enabled flags. */}
           {tab === 'qc-rest' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Domain + project now come from the QC projects list (2026-10-09) */}
+              <QcProjectsPanel token={token} />
               {paramGroupCard(
                 '🔗 חיבור בסיסי',
-                'הגדרות החיבור ל-QC REST API — כתובת, דומיין ופרויקט.',
-                key => ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_BUG_STATUS_FIELD'].includes(key),
+                'כתובת שרת ה-QC ושדה הסטטוס — הדומיין והפרויקט מוגדרים לכל פרויקט ברשימת פרויקטי QC למעלה.',
+                key => ['QC_REST_BASE_URL', 'QC_REST_BUG_STATUS_FIELD'].includes(key),
               )}
               {paramGroupCard(
                 '🧩 מיפוי שדות',

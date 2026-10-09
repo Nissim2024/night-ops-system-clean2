@@ -5,6 +5,7 @@ import { QcService } from './qc.service';
 import { QcRestService } from './qc-rest.service';
 import { PermissionsModule } from '../permissions/permissions.module';
 
+import { QcProjectsController } from './qc-projects.controller';
 @Module({
   imports: [
     JwtModule.register({
@@ -13,7 +14,7 @@ import { PermissionsModule } from '../permissions/permissions.module';
     }),
     PermissionsModule,
   ],
-  controllers: [QcController],
+  controllers: [QcController, QcProjectsController],
   providers: [QcService, QcRestService],
   exports: [QcService],
 })

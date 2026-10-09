@@ -7,6 +7,7 @@ import { CycleType } from '../qa/qa.scheduler';
 import { getQcPersonDirectory, getReleaseCycleOptions, getDefectLock } from './qc.service';
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
+import { currentQcProject, projectParamKey, assertQcProjectWritable } from './qc-project-context';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -40,18 +41,33 @@ interface QcRestConfig { baseUrl: string; domain: string; project: string; bugSt
 export class QcRestService {
   private readonly logger = new Logger(QcRestService.name);
 
+  // Domain / project = the login's QC project (2026-10-09); a project may
+  // override the Bug Status field name with QC_REST_BUG_STATUS_FIELD@<KEY>.
   private async getConfig(): Promise<QcRestConfig> {
-    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_BUG_STATUS_FIELD'];
+    const qcProject = await currentQcProject();
+    const statusKey = await projectParamKey('QC_REST_BUG_STATUS_FIELD');
+    const keys = ['QC_REST_BASE_URL', 'QC_REST_DOMAIN', 'QC_REST_PROJECT', 'QC_REST_BUG_STATUS_FIELD', statusKey];
     const rows = await prisma.systemParam.findMany({ where: { key: { in: keys } } });
     const byKey = new Map(rows.map(r => [r.key, r.value?.trim() ?? '']));
     const baseUrl = byKey.get('QC_REST_BASE_URL') ?? '';
-    const domain = byKey.get('QC_REST_DOMAIN') ?? '';
-    const project = byKey.get('QC_REST_PROJECT') ?? '';
-    const bugStatusField = byKey.get('QC_REST_BUG_STATUS_FIELD') ?? '';
+    const domain = qcProject?.domain?.trim() || (byKey.get('QC_REST_DOMAIN') ?? '');
+    const project = qcProject?.restProject?.trim() || (byKey.get('QC_REST_PROJECT') ?? '');
+    const bugStatusField = byKey.get(statusKey) || (byKey.get('QC_REST_BUG_STATUS_FIELD') ?? '');
     if (!baseUrl || !domain || !project) {
       throw new BadRequestException('חיבור QC REST לא מוגדר במלואו בפרמטרי המערכת (Base URL / Domain / Project)');
     }
     return { baseUrl: baseUrl.replace(/\/+$/, ''), domain, project, bugStatusField };
+  }
+
+  // Every write to QC (PUT / POST of an entity) goes through these: a QC
+  // project starts read-only until an admin turns writes on (2026-10-09).
+  private async qcPut(...args: Parameters<typeof axios.put>) {
+    await assertQcProjectWritable();
+    return axios.put(...args);
+  }
+  private async qcPost(...args: Parameters<typeof axios.post>) {
+    await assertQcProjectWritable();
+    return axios.post(...args);
   }
 
   // Every write-back action authenticates as the ACTING USER's own QC
@@ -259,7 +275,7 @@ export class QcRestService {
       // QC's own comment format (2026-10-07) — separator + "Name <login>, date:"
       const newValue = appendQcComment(currentValue, fullName, qcLogin, note);
 
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.entityUrl(config, defectId),
         buildFieldsPayload({ [COMMENT_FIELD]: newValue }),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -318,7 +334,7 @@ export class QcRestService {
       const auditLine = `${stamp}\nסטטוס עודכן: "${oldStatus}" ← "${newStatus.trim()}"`;
       const mergedComments = currentComments ? `${currentComments}\n---\n${auditLine}` : auditLine;
 
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.entityUrl(config, defectId),
         buildFieldsPayload({ [config.bugStatusField]: newStatus.trim(), [COMMENT_FIELD]: mergedComments }),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -396,7 +412,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const res = await axios.post(`${this.entityUrl(config, defectId)}/attachments`, fileBuffer, {
+      const res = await this.qcPost(`${this.entityUrl(config, defectId)}/attachments`, fileBuffer, {
         headers: {
           Cookie: cookie,
           'Content-Type': contentType || 'application/octet-stream',
@@ -526,10 +542,11 @@ export class QcRestService {
         const id = n ? listByRestName.get(n) : undefined;
         if (id) fieldMap[businessKey] = id;
       }
+      const mapKey = await projectParamKey(QcRestService.FIELD_LIST_MAP_PARAM);
       await prisma.systemParam.upsert({
-        where: { key: QcRestService.FIELD_LIST_MAP_PARAM },
+        where: { key: mapKey },
         update: { value: JSON.stringify({ at: new Date().toISOString(), map: fieldMap }) },
-        create: { key: QcRestService.FIELD_LIST_MAP_PARAM, label: 'מיפוי שדות תקלה לרשימות ערכים ב-QC (אוטומטי)', value: JSON.stringify({ at: new Date().toISOString(), map: fieldMap }), type: 'text' },
+        create: { key: mapKey, label: 'מיפוי שדות תקלה לרשימות ערכים ב-QC (אוטומטי)', value: JSON.stringify({ at: new Date().toISOString(), map: fieldMap }), type: 'text' },
       });
     } catch (err: any) {
       this.logger.warn(`QC field→list discovery failed, keeping the confirmed lists only: ${err.message}`);
@@ -538,9 +555,10 @@ export class QcRestService {
     const neededIds = new Set([...Object.values(await this.effectiveFieldListIds()), ...Object.values(fieldMap)]);
     const relevant = allLists.filter(l => neededIds.has(l.id));
     for (const list of relevant) {
+      const cacheId = await picklistCacheId(list.id);
       await prisma.qcPicklistCache.upsert({
-        where: { listId: list.id },
-        create: { listId: list.id, listName: list.name, values: list.values },
+        where: { listId: cacheId },
+        create: { listId: cacheId, listName: list.name, values: list.values },
         update: { listName: list.name, values: list.values, lastSyncAt: new Date() },
       });
     }
@@ -549,7 +567,7 @@ export class QcRestService {
 
   // The automatic map + when it was built (null = never)
   private async readFieldListMap(): Promise<{ at: Date | null; map: Record<string, string> }> {
-    const row = await prisma.systemParam.findUnique({ where: { key: QcRestService.FIELD_LIST_MAP_PARAM } });
+    const row = await prisma.systemParam.findUnique({ where: { key: await projectParamKey(QcRestService.FIELD_LIST_MAP_PARAM) } });
     try {
       const v = row?.value ? JSON.parse(row.value) : null;
       return { at: v?.at ? new Date(v.at) : null, map: v?.map ?? {} };
@@ -558,15 +576,16 @@ export class QcRestService {
 
   // Lists older than a day are refreshed in the background by whoever opens
   // a defect form next (their own QC session) — the form never waits on QC.
-  private picklistRefreshRunning = false;
+  private picklistRefreshRunning = new Set<string>();   // per QC project
   async refreshPicklistsIfStale(userId: string): Promise<void> {
-    if (this.picklistRefreshRunning) return;
+    const runKey = await projectParamKey('');
+    if (this.picklistRefreshRunning.has(runKey)) return;
     const { at } = await this.readFieldListMap();
     if (at && Date.now() - at.getTime() < 24 * 3600 * 1000) return;
-    this.picklistRefreshRunning = true;
+    this.picklistRefreshRunning.add(runKey);
     this.syncQcPicklists(userId)
       .catch(err => this.logger.warn(`background picklist refresh failed: ${err.message}`))
-      .finally(() => { this.picklistRefreshRunning = false; });
+      .finally(() => { this.picklistRefreshRunning.delete(runKey); });
   }
 
   // Reads the cache built by syncQcPicklists, keyed by business field name
@@ -575,11 +594,12 @@ export class QcRestService {
   async getDefectFieldPicklists(): Promise<Record<string, { values: string[]; lastSyncAt: Date } | null>> {
     const fieldToList = await this.effectiveFieldListIds();
     const listIds = Object.values(fieldToList);
-    const rows = await prisma.qcPicklistCache.findMany({ where: { listId: { in: listIds } } });
+    const cacheIds = await Promise.all(listIds.map(id => picklistCacheId(id)));
+    const rows = await prisma.qcPicklistCache.findMany({ where: { listId: { in: cacheIds } } });
     const byListId = new Map(rows.map(r => [r.listId, r]));
     const out: Record<string, { values: string[]; lastSyncAt: Date } | null> = {};
     for (const [fieldKey, listId] of Object.entries(fieldToList)) {
-      const row = byListId.get(listId);
+      const row = byListId.get(await picklistCacheId(listId));
       out[fieldKey] = row ? { values: row.values, lastSyncAt: row.lastSyncAt } : null;
     }
     return out;
@@ -733,7 +753,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.entityUrl(config, defectId),
         buildFieldsPayload(fields, 'defect', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -940,6 +960,7 @@ export class QcRestService {
     if (Object.keys(fields).length === 0 && Object.keys(refFields).length === 0 && !status && !comment) {
       throw new BadRequestException('אין שינויים לשמירה');
     }
+    await assertQcProjectWritable();   // say so before any QC call
     const restFields = await this.translateTier2Fields(fields);
     await this.validateRefPairs(refFields);
     const restRefFields = await this.translateTier2RefFields(refFields);
@@ -972,7 +993,7 @@ export class QcRestService {
       if (Object.keys(payload).length === 0 && Object.keys(restRefFields).length === 0) {
         return { ok: true, status: current[config.bugStatusField] ?? null, commentAdded: false, changedFields: [] };
       }
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.entityUrl(config, defectId),
         buildFieldsPayload(payload, 'defect', restRefFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1017,6 +1038,43 @@ export class QcRestService {
       statusCode: 423, code: 'DEFECT_LOCKED', lockedBy: login ?? null, lockedByName: who ?? null, lockedSince: since ?? null,
       message: `התקלה פתוחה לעריכה${who ? ` אצל ${who}` : ' אצל משתמש אחר'} ב-QC — לא נשמר דבר. השינויים שלך שמורים; נסה שוב כשהתקלה תשוחרר.`,
     }, 423);
+  }
+
+  // ── QC projects admin (2026-10-09) ─────────────────────────────────────
+  // The projects of a domain the acting user can see in QC.
+  async listDomainProjects(userId: string, domain?: string): Promise<{ domain: string; projects: string[] }> {
+    const config = await this.getConfig();
+    const d = (domain ?? config.domain).trim();
+    const cookie = await this.loginAsUser(config, await this.resolveQcLogin(userId));
+    try {
+      const res = await this.safeRequest(
+        () => axios.get(`${config.baseUrl}/rest/domains/${encodeURIComponent(d)}/projects`, { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true }),
+        config.baseUrl,
+      );
+      if (res.status !== 200) throw new BadRequestException(`QC לא החזיר את רשימת הפרויקטים של ${d} (status ${res.status})`);
+      const xml = String(res.data);
+      const names = [...xml.matchAll(/<Project[^>]*Name="([^"]+)"/gi)].map(m => m[1]);
+      return { domain: d, projects: Array.from(new Set(names)) };
+    } finally {
+      await this.logout(config, cookie);
+    }
+  }
+
+  // Can the acting user read this request's project over REST? (one defect)
+  async testProjectConnection(userId: string): Promise<{ ok: boolean; status?: number; message: string }> {
+    const config = await this.getConfig();
+    const cookie = await this.loginAsUser(config, await this.resolveQcLogin(userId));
+    try {
+      const res = await this.safeRequest(
+        () => axios.get(`${this.collectionUrl(config)}?page-size=1`, { headers: { Cookie: cookie, Accept: 'application/xml' }, validateStatus: () => true }),
+        config.baseUrl,
+      );
+      return res.status === 200
+        ? { ok: true, status: 200, message: `QC REST: ${config.domain} / ${config.project} — תקין` }
+        : { ok: false, status: res.status, message: `QC REST החזיר status ${res.status} עבור ${config.domain} / ${config.project}` };
+    } finally {
+      await this.logout(config, cookie);
+    }
   }
 
   // admin lab: what QC REST answers about one defect's lock (raw)
@@ -1141,7 +1199,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         this.collectionUrl(config),
         buildFieldsPayload(fields, 'defect', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1265,7 +1323,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         this.releasesCollectionUrl(config),
         buildFieldsPayload(fields, 'release'),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1315,7 +1373,7 @@ export class QcRestService {
         const existing = rows.find(r => r[REST_FIELD.title] === year);
         if (existing?.[REST_FIELD.id]) return { id: existing[REST_FIELD.id], created: false };
       }
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         this.releaseFoldersCollectionUrl(config),
         buildFieldsPayload({ [REST_FIELD.title]: year }, 'release-folder'),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1414,7 +1472,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         this.releaseCyclesCollectionUrl(config),
         buildFieldsPayload(fields, 'release-cycle'),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1471,7 +1529,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.releaseEntityUrl(config, releaseId),
         buildFieldsPayload(fields, 'release'),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1493,7 +1551,7 @@ export class QcRestService {
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
-      const putRes = await axios.put(
+      const putRes = await this.qcPut(
         this.releaseCycleEntityUrl(config, cycleId),
         buildFieldsPayload(fields, 'release-cycle'),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1725,7 +1783,7 @@ export class QcRestService {
       }
       const fields: Record<string, string> = { [REST_FIELD.title]: name };
       if (parentId != null) fields['parent-id'] = parentId;
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         url,
         buildFieldsPayload(fields, entityType),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -1776,7 +1834,7 @@ export class QcRestService {
     const cookie = await this.loginAsUser(config, qcLogin);
     try {
       const url = this.collectionUrlFor(config, 'requirements');
-      const postRes = await axios.post(
+      const postRes = await this.qcPost(
         url,
         buildFieldsPayload(fields, 'requirement', refFields),
         { headers: { Cookie: cookie, 'Content-Type': 'application/xml; charset=utf-8', Accept: 'application/xml' }, validateStatus: () => true },
@@ -2136,6 +2194,13 @@ function xmlEscape(s: string): string {
 // (buildRequirementPayload); generalized 2026-09-20 so defect creation's
 // Target Release/Detected Cycle fields can use the same reference-value
 // shape instead of assuming a defect will accept a plain string there.
+// Cached QC value lists are per project: the default project keeps the plain
+// list id, another one is stored as "<KEY>:<listId>" (2026-10-09).
+async function picklistCacheId(listId: string): Promise<string> {
+  const p = await currentQcProject();
+  return !p || p.isDefault ? listId : `${p.key}:${listId}`;
+}
+
 // First matching <Tag>value</Tag> in an XML string
 function xmlTag(xml: string, tags: string[]): string | undefined {
   for (const t of tags) {

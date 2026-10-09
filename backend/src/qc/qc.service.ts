@@ -1,4 +1,5 @@
 import { qcMemo } from './qc-cache';
+import { currentQcProject, currentQcProjectKey, isValidOracleSchema } from './qc-project-context';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 import { Injectable, Logger, BadRequestException, OnApplicationBootstrap } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
@@ -1944,30 +1945,41 @@ let realTargetDefectsCache: TargetDefectDto[] | null | undefined;
 // scripts/import-real-defects-seed.js into the git-ignored seed folder. When
 // present and Oracle is disabled, the mock defects module / search / lists /
 // defect form use these instead of synthetic defects. Never used with Oracle.
-let realAllBugsCache: any[] | null | undefined;
-let realAllBugsMtime = -1;
-function loadRealAllBugs(): any[] | null {
-  const filePath = path.join(process.cwd(), 'src', 'qc', 'seed-data', 'allbugs.local.json');
+// Dev seed files of the request's QC project (2026-10-09): another project's
+// files live in seed-data/projects/<key>/ — the default project keeps the
+// top-level ones.
+function devSeedPath(file: string): string {
+  const key = currentQcProjectKey();
+  return key
+    ? path.join(process.cwd(), 'src', 'qc', 'seed-data', 'projects', key, file)
+    : path.join(process.cwd(), 'src', 'qc', 'seed-data', file);
+}
+
+const realAllBugsFiles = new Map<string, { mtime: number; rows: any[] | null; byId: Map<string, any> | null }>();
+function loadRealAllBugsEntry(): { mtime: number; rows: any[] | null; byId: Map<string, any> | null } {
+  const filePath = devSeedPath('allbugs.local.json');
   let mtime = 0;
   try { mtime = fs.statSync(filePath).mtimeMs; } catch { mtime = 0; }
   // re-read when the file is regenerated (no server restart needed)
-  if (realAllBugsCache !== undefined && mtime === realAllBugsMtime) return realAllBugsCache;
-  realAllBugsMtime = mtime;
-  realAllBugsByIdCache = null;
+  const hit = realAllBugsFiles.get(filePath);
+  if (hit && hit.mtime === mtime) return hit;
+  let rows: any[] | null = null;
   try {
-    const rows = mtime ? JSON.parse(fs.readFileSync(filePath, 'utf-8')) : null;
-    realAllBugsCache = Array.isArray(rows) && rows.length > 0 ? rows : null;
-  } catch {
-    realAllBugsCache = null;
-  }
-  return realAllBugsCache;
+    const parsed = mtime ? JSON.parse(fs.readFileSync(filePath, 'utf-8')) : null;
+    rows = Array.isArray(parsed) && parsed.length > 0 ? parsed : null;
+  } catch { rows = null; }
+  const entry = { mtime, rows, byId: null as Map<string, any> | null };
+  realAllBugsFiles.set(filePath, entry);
+  return entry;
 }
-let realAllBugsByIdCache: Map<string, any> | null = null;
+function loadRealAllBugs(): any[] | null {
+  return loadRealAllBugsEntry().rows;
+}
 function realAllBugById(id: string): any | null {
-  const rows = loadRealAllBugs();
-  if (!rows) return null;
-  if (!realAllBugsByIdCache) realAllBugsByIdCache = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
-  return realAllBugsByIdCache.get(String(id)) ?? null;
+  const e = loadRealAllBugsEntry();
+  if (!e.rows) return null;
+  if (!e.byId) e.byId = new Map(e.rows.map(r => [String(r.DEFECT_ID), r]));
+  return e.byId.get(String(id)) ?? null;
 }
 // DEV ONLY: value lists for the form's dropdowns while there's no QC — the
 // distinct values each list field really has across the real export.
@@ -2036,7 +2048,7 @@ export async function getReleaseCycleOptions(): Promise<ReleaseCycleOption[]> {
   } else {
     // dev: the real RELEASES/CYCLES exports (scripts/import-real-defects-seed.js)
     try {
-      releases = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'qc', 'seed-data', 'release-cycles.local.json'), 'utf-8'));
+      releases = JSON.parse(fs.readFileSync(devSeedPath('release-cycles.local.json'), 'utf-8'));
     } catch {
       const rows = await prisma.qcRelease.findMany({ orderBy: { relStartDate: 'desc' } });
       releases = rows.map(r => ({
@@ -2123,7 +2135,7 @@ export async function getDefectLock(defectId: string): Promise<DefectLock> {
   if (!enabled) {
     // dev: seed-data/locks.local.json = { "<defectId>": { "user": "<login>", "since": "<iso>" } }
     try {
-      const all = JSON.parse(fs.readFileSync(path.join(process.cwd(), 'src', 'qc', 'seed-data', 'locks.local.json'), 'utf-8'));
+      const all = JSON.parse(fs.readFileSync(devSeedPath('locks.local.json'), 'utf-8'));
       const l = all[defectId];
       return withPersonName(l ? { locked: true, by: l.user, since: l.since, source: 'dev' } : { locked: false, source: 'dev' });
     } catch {
@@ -2138,6 +2150,21 @@ export async function getDefectLock(defectId: string): Promise<DefectLock> {
     return withPersonName(row ? { locked: true, ...lockFromRow(row), source: 'oracle' } : { locked: false, source: 'oracle' });
   } catch (err: any) {
     return { locked: false, source: 'unavailable', error: err.message };
+  } finally {
+    if (conn) await conn.close().catch(() => {});
+  }
+}
+
+// QC projects admin: can this request's project schema be read? (2026-10-09)
+export async function testQcProjectOracle(): Promise<{ ok: boolean; message: string }> {
+  let conn: any;
+  try {
+    conn = await oracleConnect();
+    const r = ((await conn.execute(`SELECT COUNT(*) AS N, MAX(BG_BUG_ID) AS MX FROM BUG`)).rows ?? [])[0] as any;
+    const schema = ((await conn.execute(`SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') AS S FROM DUAL`)).rows ?? [])[0] as any;
+    return { ok: true, message: `Oracle: סכמה ${schema?.S ?? '?'} — ${r?.N ?? 0} תקלות (מספר אחרון ${r?.MX ?? '—'})` };
+  } catch (err: any) {
+    return { ok: false, message: `Oracle: ${err.message}` };
   } finally {
     if (conn) await conn.close().catch(() => {});
   }
@@ -2515,16 +2542,39 @@ async function oracleConnect(): Promise<any> {
     oraclePool!.catch(() => { oraclePool = null; oraclePoolKey = ''; });
     if (old) old.then((p: any) => p.close(30)).catch(() => {});
   }
+  let conn: any;
   try {
     const pool = await oraclePool!;
-    return await pool.getConnection();
+    conn = await pool.getConnection();
   } catch (err: any) {
     console.warn(`[oracle] pool unavailable (${err?.message}) — direct connection`);
-    return oracledb.getConnection({ user: cfg.user, password: cfg.password, connectString: cfg.connectString });
+    conn = await oracledb.getConnection({ user: cfg.user, password: cfg.password, connectString: cfg.connectString });
   }
+  // The request's QC project (2026-10-09): every query here uses unqualified
+  // table names, so pointing the session at the project's schema is all it
+  // takes. Pooled sessions keep their schema — once any project switched,
+  // every checkout sets it explicitly (null = back to the user's own schema).
+  const project = await currentQcProject().catch(() => null);
+  const schema = project?.oracleSchema?.trim() || null;
+  if (schema || oracleSchemaSwitched) {
+    const target = schema ?? cfg.user;
+    if (!isValidOracleSchema(target)) {
+      await conn.close().catch(() => {});
+      throw new Error(`Invalid Oracle schema name for QC project ${project?.key}: ${target}`);
+    }
+    if (schema) oracleSchemaSwitched = true;
+    try {
+      await conn.execute(`ALTER SESSION SET CURRENT_SCHEMA = ${target}`);
+    } catch (err) {
+      await conn.close().catch(() => {});
+      throw err;
+    }
+  }
+  return conn;
 }
 let oraclePool: Promise<any> | null = null;
 let oraclePoolKey = '';
+let oracleSchemaSwitched = false;
 
 // Bucket definitions confirmed against the team's PBIRS reports (2026-07-06):
 //   Open       = status NOT IN (Closed, Canceled) — a DB-status "Rejected" row
@@ -3163,8 +3213,9 @@ function buildMockAnalyticsRows(): AnalyticsRawRow[] {
   return rows;
 }
 
-let analyticsCache: { at: number; rows: AnalyticsRawRow[]; mock: boolean } | null = null;
-let analyticsLoading: Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> | null = null;
+// per QC project (key '' = the default project) — 2026-10-09
+const analyticsCaches = new Map<string, { at: number; rows: AnalyticsRawRow[]; mock: boolean }>();
+const analyticsLoadings = new Map<string, Promise<{ rows: AnalyticsRawRow[]; mock: boolean }>>();
 const ANALYTICS_CACHE_MS = 10 * 60 * 1000;
 
 // SLA — not defined yet (user, 2026-10-06: "להכין משהו שיתמוך בזה בעתיד").
@@ -4822,6 +4873,7 @@ export class QcService implements OnApplicationBootstrap {
   // load after a restart (and the warm-up below takes that one too). "force"
   // (the refresh button) waits for fresh rows, still shared by all callers.
   private async loadAnalyticsRows(force = false): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
+    const analyticsCache = analyticsCaches.get(currentQcProjectKey() ?? '');
     const fresh = analyticsCache && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS;
     if (!force && fresh) return analyticsCache!;
     if (!force && analyticsCache) {
@@ -4832,10 +4884,13 @@ export class QcService implements OnApplicationBootstrap {
   }
 
   private refreshAnalyticsRows(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
-    if (!analyticsLoading) {
-      analyticsLoading = this.loadAnalyticsRowsFromDb().finally(() => { analyticsLoading = null; });
+    const k = currentQcProjectKey() ?? '';
+    let loading = analyticsLoadings.get(k);
+    if (!loading) {
+      loading = this.loadAnalyticsRowsFromDb().finally(() => { analyticsLoadings.delete(k); });
+      analyticsLoadings.set(k, loading);
     }
-    return analyticsLoading;
+    return loading;
   }
 
   // Fill the defects-module cache shortly after startup so the first user
@@ -4851,8 +4906,9 @@ export class QcService implements OnApplicationBootstrap {
   private async loadAnalyticsRowsFromDb(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
     const { enabled } = await getOracleConfig();
     if (!enabled) {
-      analyticsCache = { at: Date.now(), rows: buildMockAnalyticsRows(), mock: true };
-      return analyticsCache;
+      const c = { at: Date.now(), rows: buildMockAnalyticsRows(), mock: true };
+      analyticsCaches.set(currentQcProjectKey() ?? '', c);
+      return c;
     }
     // the two scans run in parallel on two pooled sessions
     const run = async (sql: string) => {
@@ -4871,8 +4927,9 @@ export class QcService implements OnApplicationBootstrap {
       } else {
         this.logger.warn(`Oracle defects close-dates (AUDIT_LOG) failed, using BG_VTS fallback: ${closeRes.reason?.message}`);
       }
-      analyticsCache = { at: Date.now(), rows, mock: false };
-      return analyticsCache;
+      const c = { at: Date.now(), rows, mock: false };
+      analyticsCaches.set(currentQcProjectKey() ?? '', c);
+      return c;
     } catch (err: any) {
       this.logger.error(`Oracle getDefectsAnalytics: ${err.message}`);
       throw err;

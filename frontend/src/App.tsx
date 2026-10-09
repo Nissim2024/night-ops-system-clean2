@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import axios from 'axios';
 import { Login } from './components/Login';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { EmployeeDashboard } from './components/EmployeeDashboard';
@@ -6,6 +7,7 @@ import { PermissionsProvider } from './context/PermissionsContext';
 import { DialogProvider } from './context/DialogContext';
 import { UnsavedChangesProvider } from './context/UnsavedChangesContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+const API_URL = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
 // Deep link (e.g. from a "copy Home to email" link): ?go=ri-home&versionId=<id>.
 // Read once at load, then strip from the URL so a refresh doesn't re-fire it.
@@ -68,7 +70,9 @@ function App() {
           <PermissionsProvider token={token} role={payload.role}>
             {isManager
               ? <ManagerDashboard token={token} onLogout={handleLogout} deepLink={deepLink} onDeepLinkConsumed={() => setDeepLink(null)} />
-              : <EmployeeDashboard token={token} onLogout={handleLogout} />
+              : <EmployeeProjectGate qcProject={payload.qcProject ?? null} onLogout={handleLogout}>
+                  <EmployeeDashboard token={token} onLogout={handleLogout} />
+                </EmployeeProjectGate>
             }
           </PermissionsProvider>
         </UnsavedChangesProvider>
@@ -76,5 +80,30 @@ function App() {
     </ErrorBoundary>
   );
 }
+
+// Multi-project phase 1 (2026-10-09): the employee screen shows the default
+// project's versions/tasks only, so an employee logged in to another QC
+// project gets an explanation instead of the wrong project's data.
+const EmployeeProjectGate: React.FC<{ qcProject: string | null; onLogout: () => void; children: React.ReactNode }> = ({ qcProject, onLogout, children }) => {
+  const [secondary, setSecondary] = useState<{ displayName: string } | null | undefined>(qcProject ? undefined : null);
+  useEffect(() => {
+    if (!qcProject) return;
+    axios.get(`${API_URL}/auth/qc-projects`)
+      .then(r => { const p = (r.data ?? []).find((x: any) => x.key === qcProject); setSecondary(p && !p.isDefault ? { displayName: p.displayName } : null); })
+      .catch(() => setSecondary(null));
+  }, [qcProject]);
+  if (secondary === undefined) return null;
+  if (!secondary) return <>{children}</>;
+  return (
+    <div dir="rtl" style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'inherit' }}>
+      <div style={{ maxWidth: 460, textAlign: 'center', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 40 }}>📁</div>
+        <h2 style={{ margin: 0 }}>הפרויקט {secondary.displayName} עדיין לא זמין במסך העובדים</h2>
+        <p style={{ margin: 0, opacity: 0.75 }}>בשלב זה הפרויקט זמין רק במודול התקלות למנהלים. התנתק ובחר פרויקט אחר במסך הכניסה.</p>
+        <button type="button" onClick={onLogout} style={{ alignSelf: 'center', padding: '8px 18px', borderRadius: 8, border: 'none', cursor: 'pointer', fontWeight: 600 }}>התנתקות</button>
+      </div>
+    </div>
+  );
+};
 
 export default App;
