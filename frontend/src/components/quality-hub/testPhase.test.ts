@@ -1,4 +1,4 @@
-import { testPhaseFor, withRequiredFields, CREATE_REQUIRED_FIELDS } from './openProdDefectsFields';
+import { testPhaseFor, withRequiredFields, CREATE_REQUIRED_FIELDS, normalizeLayout } from './openProdDefectsFields';
 
 // Test Phase follows the cycle (user, 2026-10-09)
 describe('testPhaseFor', () => {
@@ -50,5 +50,25 @@ describe('withRequiredFields', () => {
     const l = layout();
     withRequiredFields(l);
     expect(l[1].fields).not.toContain('system');
+  });
+});
+
+// three panels on top + one full-width "שדות נוספים" (2026-10-09)
+describe('normalizeLayout', () => {
+  it('an older layout keeps 3 panels on top and merges the rest below', () => {
+    const out = normalizeLayout([
+      { name: 'Identification', fields: ['id'] }, { name: 'Detection', fields: ['detectedBy'] },
+      { name: 'Responsibility', fields: ['assignedTo'] }, { name: 'Target', fields: ['targetRelease', 'targetCycle'], wide: ['targetCycle'] },
+      { name: 'Impact', fields: ['impact'] },
+    ]);
+    expect(out.map(p => p.name)).toEqual(['Identification', 'Detection', 'Responsibility', 'שדות נוספים']);
+    expect(out[3]).toMatchObject({ below: true, fields: ['targetRelease', 'targetCycle', 'impact'], wide: ['targetCycle'] });
+  });
+  it('a layout that already marks a panel below is kept as is', () => {
+    const l = [{ name: 'A', fields: ['id'] }, { name: 'B', fields: ['x'] }, { name: 'C', fields: [] }, { name: 'D', fields: [] }, { name: 'More', fields: ['y'], below: true }];
+    expect(normalizeLayout(l).map(p => p.name)).toEqual(['A', 'B', 'C', 'D', 'More']);
+  });
+  it('three panels or fewer → nothing below', () => {
+    expect(normalizeLayout([{ name: 'A', fields: ['id'] }]).some(p => p.below)).toBe(false);
   });
 });

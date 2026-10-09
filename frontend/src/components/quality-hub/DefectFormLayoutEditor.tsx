@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
-import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, createFieldsOf } from './openProdDefectsFields';
+import { DETAIL_FIELDS, DETAIL_FIELD_LABEL, DEFAULT_OPEN_PROD_DETAIL_GROUPS, DEFECT_FORM_FIXED_FIELDS, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, normalizeLayout, TOP_PANEL_COUNT } from './openProdDefectsFields';
 import { useDialog } from '../../context/DialogContext';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
@@ -12,7 +12,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 // resolveDefectFormLayout). The editor mirrors the form itself: panels and
 // fields flow left-to-right, so "first" = leftmost, exactly as rendered.
 
-interface Panel { name: string; fields: string[]; wide?: string[]; create?: string[]; }
+interface Panel { name: string; fields: string[]; wide?: string[]; below?: boolean; }
 interface Layout { panels: Panel[]; }
 interface Layouts { default: Layout | null; roles: Record<string, Layout>; teams: Record<string, Layout>; }
 interface TeamRow { id: string; name: string; }
@@ -22,28 +22,25 @@ const ROLE_LABEL: Record<string, string> = {
   TEAM_LEAD: 'ראש צוות', EMPLOYEE: 'עובד', VIEWER: 'צופה',
 };
 
+// three panels on top + a full-width "שדות נוספים" under them (normalizeLayout);
+// an older saved layout is shown — and saved — in that shape
 const builtinLayout = (): Layout => ({
-  panels: DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: [...g.fields], wide: [...(g.wide ?? [])] })),
+  panels: normalizeLayout(DEFAULT_OPEN_PROD_DETAIL_GROUPS.map(g => ({ name: g.title, fields: [...g.fields], wide: [...(g.wide ?? [])] }))),
 });
-const cloneLayout = (l: Layout): Layout => ({ panels: l.panels.map(p => ({ name: p.name, fields: [...p.fields], wide: [...(p.wide ?? [])], ...(p.create ? { create: [...p.create] } : {}) })) });
-// also shown when OPENING a new defect (2026-10-09); required ones always are
-const toggleCreate = (p: Panel, f: string) => { const c = p.create ?? createFieldsOf(p); p.create = c.includes(f) ? c.filter(x => x !== f) : [...c, f]; };
+const cloneLayout = (l: Layout): Layout => ({ panels: normalizeLayout(l.panels).map(p => ({ name: p.name, fields: [...p.fields], wide: [...(p.wide ?? [])], ...(p.below ? { below: true } : {}) })) });
 const toggleWide = (p: Panel, f: string) => { const w = p.wide ?? []; p.wide = w.includes(f) ? w.filter(x => x !== f) : [...w, f]; };
 // Move a field to another place / panel (drag & drop or "העבר ל…", 2026-10-09);
-// its ↔ full row and 🆕 settings go with it.
+// its ↔ full row setting goes with it.
 const moveField = (l: Layout, fromPi: number, fi: number, toPi: number, toIdx?: number) => {
   const src = l.panels[fromPi], dst = l.panels[toPi];
   const f = src.fields[fi];
   const wasWide = !!src.wide?.includes(f);
-  const wasOn = createFieldsOf(src).includes(f);
   src.fields.splice(fi, 1);
   if (wasWide) toggleWide(src, f);
-  if (src.create) src.create = src.create.filter(x => x !== f);
   let idx = toIdx ?? dst.fields.length;
   if (fromPi === toPi && toIdx !== undefined && fi < toIdx) idx--;
   dst.fields.splice(idx, 0, f);
   if (wasWide !== !!dst.wide?.includes(f)) toggleWide(dst, f);
-  if (wasOn !== createFieldsOf(dst).includes(f)) toggleCreate(dst, f);
 };
 
 const btn = 'cursor-pointer rounded-sm border border-border bg-card px-1.5 py-0.5 text-[11px] text-muted-foreground disabled:cursor-default disabled:opacity-30';
@@ -128,6 +125,90 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
 
   const scopeHasOwn = (sc: string) => !!stored(layouts, sc);
 
+  const topCount = draft?.panels.filter(p => !p.below).length ?? 0;
+  const panelCard = (p: Panel, pi: number) => (
+              <div key={pi} dir="rtl" className="flex flex-col gap-3 rounded-xl border bg-card p-4"
+                style={{ borderColor: drag && dropAt === String(pi) ? '#0052CC' : undefined, borderWidth: drag && dropAt === String(pi) ? 2 : 1 }}
+                onDragOver={e => { if (!drag) return; e.preventDefault(); if (dropAt !== String(pi) && !dropAt?.startsWith(`${pi}:`)) setDropAt(String(pi)); }}
+                onDrop={e => { e.preventDefault(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi)); setDrag(null); setDropAt(null); }}>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={p.name}
+                    onChange={e => update(l => { l.panels[pi].name = e.target.value; })}
+                    className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 text-sm font-bold"
+                    placeholder="שם החלונית"
+                  />
+                  <button className={btn} title="הזז שמאלה (מוקדם יותר)" disabled={pi === 0}
+                    onClick={() => update(l => { [l.panels[pi - 1], l.panels[pi]] = [l.panels[pi], l.panels[pi - 1]]; })}>◀</button>
+                  <button className={btn} title="הזז ימינה (מאוחר יותר)" disabled={pi === draft!.panels.length - 1}
+                    onClick={() => update(l => { [l.panels[pi + 1], l.panels[pi]] = [l.panels[pi], l.panels[pi + 1]]; })}>▶</button>
+                  <button className={btn}
+                    title={p.below ? 'חלונית רחבה מתחת — לחץ כדי להעביר לשורה העליונה' : 'חלונית עליונה — לחץ כדי להפוך לחלונית רחבה מתחת'}
+                    style={p.below ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC' } : undefined}
+                    onClick={() => update(l => { l.panels[pi].below = !l.panels[pi].below || undefined; })}>{p.below ? '⬇ רחבה' : '⬆ עליונה'}</button>
+                  <button className={btn} title="מחק חלונית (השדות יחזרו לרשימת הזמינים)"
+                    onClick={async () => { if (p.fields.length === 0 || await dialog.confirm(`למחוק את "${p.name}"? השדות יחזרו לרשימת הזמינים.`, 'מחיקת חלונית', 'danger')) update(l => { l.panels.splice(pi, 1); }); }}>🗑</button>
+                </div>
+
+                <div className={p.below ? 'grid gap-1' : 'flex flex-col gap-1'}
+                  style={{ direction: 'ltr', ...(p.below ? { gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))' } : {}) }}>
+                  {p.fields.length === 0 && <span className="text-xs text-subtle-foreground" dir="rtl">אין שדות בחלונית</span>}
+                  {p.fields.map((f, fi) => (
+                    <div key={f} className="flex w-full items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs"
+                      draggable
+                      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f); setDrag({ pi, fi }); }}
+                      onDragEnd={() => { setDrag(null); setDropAt(null); }}
+                      onDragOver={e => { if (!drag) return; e.preventDefault(); e.stopPropagation(); if (dropAt !== `${pi}:${fi}`) setDropAt(`${pi}:${fi}`); }}
+                      onDrop={e => { e.preventDefault(); e.stopPropagation(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi, fi)); setDrag(null); setDropAt(null); }}
+                      title="גרור לחלונית אחרת או למקום אחר"
+                      style={{
+                        ...(p.wide?.includes(f) ? { borderColor: '#0052CC' } : {}),
+                        cursor: 'grab',
+                        opacity: drag && drag.pi === pi && drag.fi === fi ? 0.4 : 1,
+                        boxShadow: drag && dropAt === `${pi}:${fi}` ? '0 -3px 0 0 #0052CC' : undefined,
+                      }}>
+                      <span className="select-none text-subtle-foreground" aria-hidden>⋮⋮</span>
+                      <span className="min-w-0 flex-1 truncate whitespace-nowrap font-semibold text-foreground" title={label(f)}>{label(f)}</span>
+                      <button className={btn} title="למעלה (מוקדם יותר)" disabled={fi === 0}
+                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi - 1], a[fi]] = [a[fi], a[fi - 1]]; })}>▲</button>
+                      <button className={btn} title="למטה (מאוחר יותר)" disabled={fi === p.fields.length - 1}
+                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi + 1], a[fi]] = [a[fi], a[fi + 1]]; })}>▼</button>
+                      <button
+                        className={btn}
+                        title={p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
+                        style={p.wide?.includes(f) ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC' } : undefined}
+                        onClick={() => update(l => toggleWide(l.panels[pi], f))}
+                      >↔</button>
+                      {draft!.panels.length > 1 && (
+                        <select
+                          value=""
+                          title="העבר לחלונית אחרת"
+                          onChange={e => { const to = Number(e.target.value); if (e.target.value !== '') update(l => moveField(l, pi, fi, to)); }}
+                          className="w-[74px] cursor-pointer rounded-sm border border-border bg-card px-0.5 text-[11px] text-muted-foreground"
+                        >
+                          <option value="">⇄ העבר ל…</option>
+                          {draft!.panels.map((tp, ti) => ti !== pi && <option key={ti} value={ti}>{tp.name || `חלונית ${ti + 1}`}</option>)}
+                        </select>
+                      )}
+                      {CREATE_REQUIRED_FIELDS.has(f) && <span className="font-bold" style={{ color: '#DE350B' }} title="שדה חובה ב-QC">*</span>}
+                      <button className={btn} title="הסר מהטופס" onClick={() => update(l => { l.panels[pi].fields.splice(fi, 1); })}>✕</button>
+                    </div>
+                  ))}
+                </div>
+
+                {availableFields.length > 0 && (
+                  <select
+                    value=""
+                    onChange={e => { const k = e.target.value; if (k) update(l => { l.panels[pi].fields.push(k); }); }}
+                    className="self-start rounded-sm border border-dashed border-border bg-background px-2 py-1 text-xs text-muted-foreground"
+                  >
+                    <option value="">+ הוסף שדה לחלונית…</option>
+                    {availableFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
+                  </select>
+                )}
+              </div>
+  );
+
   if (!layouts) return <div className="p-6 text-sm text-subtle-foreground">טוען תבניות…</div>;
 
   return (
@@ -138,7 +219,8 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
           קובעים אילו שדות יופיעו בטופס תצוגת/עדכון התקלה, באיזה סדר, ובאילו חלוניות. משתמש מקבל את תבנית הצוות שלו; אם אין — את תבנית התפקיד; אם אין — את ברירת המחדל.
           החלוניות והשדות מוצגים כאן כמו בטופס עצמו: הראשון משמאל. Title, Description ו-Comments קבועים מחוץ לחלוניות.
           להעברת שדה בין חלוניות: גרור אותו לחלונית אחרת (או למקום בין שדות), או בחר "העבר ל…" בשדה עצמו.
-          אותה תבנית משמשת גם לפתיחת תקלה חדשה — באותן חלוניות ובאותם מקומות: 🆕 ירוק = ניתן למלא כבר בפתיחת התקלה (שדות חובה של QC — תמיד); שדה בלי 🆕 מוצג שם נעול וממולא בהמשך הטיפול.
+          מבנה הטופס: עד 3 חלוניות עליונות זו לצד זו, ומתחתן חלונית רחבה ("שדות נוספים") לשדות הפחות שכיחים — ⬇/⬆ בכותרת החלונית קובע אם היא עליונה או רחבה מתחת.
+          אותה תבנית משמשת גם לפתיחת תקלה חדשה, באותם מקומות (שם החלונית הרחבה מקופלת). שדות חובה של QC מסומנים * בשני הטפסים.
         </div>
       </div>
 
@@ -175,93 +257,10 @@ export const DefectFormLayoutEditor: React.FC<{ token: string }> = ({ token }) =
         <>
           {/* ── panels, laid out like the form (first = leftmost) ── */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(380px, 1fr))', gap: 14, direction: 'ltr' }}>
-            {draft.panels.map((p, pi) => (
-              <div key={pi} dir="rtl" className="flex flex-col gap-3 rounded-xl border bg-card p-4"
-                style={{ borderColor: drag && dropAt === String(pi) ? '#0052CC' : undefined, borderWidth: drag && dropAt === String(pi) ? 2 : 1 }}
-                onDragOver={e => { if (!drag) return; e.preventDefault(); if (dropAt !== String(pi) && !dropAt?.startsWith(`${pi}:`)) setDropAt(String(pi)); }}
-                onDrop={e => { e.preventDefault(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi)); setDrag(null); setDropAt(null); }}>
-                <div className="flex items-center gap-1.5">
-                  <input
-                    value={p.name}
-                    onChange={e => update(l => { l.panels[pi].name = e.target.value; })}
-                    className="min-w-0 flex-1 rounded-sm border border-border bg-background px-2 py-1 text-sm font-bold"
-                    placeholder="שם החלונית"
-                  />
-                  <button className={btn} title="הזז שמאלה (מוקדם יותר)" disabled={pi === 0}
-                    onClick={() => update(l => { [l.panels[pi - 1], l.panels[pi]] = [l.panels[pi], l.panels[pi - 1]]; })}>◀</button>
-                  <button className={btn} title="הזז ימינה (מאוחר יותר)" disabled={pi === draft.panels.length - 1}
-                    onClick={() => update(l => { [l.panels[pi + 1], l.panels[pi]] = [l.panels[pi], l.panels[pi + 1]]; })}>▶</button>
-                  <button className={btn} title="מחק חלונית (השדות יחזרו לרשימת הזמינים)"
-                    onClick={async () => { if (p.fields.length === 0 || await dialog.confirm(`למחוק את "${p.name}"? השדות יחזרו לרשימת הזמינים.`, 'מחיקת חלונית', 'danger')) update(l => { l.panels.splice(pi, 1); }); }}>🗑</button>
-                </div>
-
-                <div className="flex flex-col gap-1" style={{ direction: 'ltr' }}>
-                  {p.fields.length === 0 && <span className="text-xs text-subtle-foreground" dir="rtl">אין שדות בחלונית</span>}
-                  {p.fields.map((f, fi) => (
-                    <div key={f} className="flex w-full items-center gap-1 rounded-sm border border-border bg-muted px-1.5 py-1 text-xs"
-                      draggable
-                      onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', f); setDrag({ pi, fi }); }}
-                      onDragEnd={() => { setDrag(null); setDropAt(null); }}
-                      onDragOver={e => { if (!drag) return; e.preventDefault(); e.stopPropagation(); if (dropAt !== `${pi}:${fi}`) setDropAt(`${pi}:${fi}`); }}
-                      onDrop={e => { e.preventDefault(); e.stopPropagation(); if (drag) update(l => moveField(l, drag.pi, drag.fi, pi, fi)); setDrag(null); setDropAt(null); }}
-                      title="גרור לחלונית אחרת או למקום אחר"
-                      style={{
-                        ...(p.wide?.includes(f) ? { borderColor: '#0052CC' } : {}),
-                        cursor: 'grab',
-                        opacity: drag && drag.pi === pi && drag.fi === fi ? 0.4 : 1,
-                        boxShadow: drag && dropAt === `${pi}:${fi}` ? '0 -3px 0 0 #0052CC' : undefined,
-                      }}>
-                      <span className="select-none text-subtle-foreground" aria-hidden>⋮⋮</span>
-                      <span className="min-w-0 flex-1 truncate whitespace-nowrap font-semibold text-foreground" title={label(f)}>{label(f)}</span>
-                      <button className={btn} title="למעלה (מוקדם יותר)" disabled={fi === 0}
-                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi - 1], a[fi]] = [a[fi], a[fi - 1]]; })}>▲</button>
-                      <button className={btn} title="למטה (מאוחר יותר)" disabled={fi === p.fields.length - 1}
-                        onClick={() => update(l => { const a = l.panels[pi].fields; [a[fi + 1], a[fi]] = [a[fi], a[fi + 1]]; })}>▼</button>
-                      <button
-                        className={btn}
-                        title={p.wide?.includes(f) ? 'שורה מלאה — לחץ לביטול' : 'תן לשדה שורה מלאה בחלונית (לערכים ארוכים)'}
-                        style={p.wide?.includes(f) ? { background: '#DEEBFF', color: '#0052CC', borderColor: '#0052CC' } : undefined}
-                        onClick={() => update(l => toggleWide(l.panels[pi], f))}
-                      >↔</button>
-                      {draft.panels.length > 1 && (
-                        <select
-                          value=""
-                          title="העבר לחלונית אחרת"
-                          onChange={e => { const to = Number(e.target.value); if (e.target.value !== '') update(l => moveField(l, pi, fi, to)); }}
-                          className="w-[74px] cursor-pointer rounded-sm border border-border bg-card px-0.5 text-[11px] text-muted-foreground"
-                        >
-                          <option value="">⇄ העבר ל…</option>
-                          {draft.panels.map((tp, ti) => ti !== pi && <option key={ti} value={ti}>{tp.name || `חלונית ${ti + 1}`}</option>)}
-                        </select>
-                      )}
-                      {(() => {
-                        const req = CREATE_REQUIRED_FIELDS.has(f);
-                        const on = req || createFieldsOf(p).includes(f);
-                        return (
-                          <button className={btn} disabled={req}
-                            title={req ? 'שדה חובה ב-QC — תמיד ממולא בפתיחת תקלה' : on ? 'ניתן למלא כבר בפתיחת תקלה חדשה — לחץ כדי לנעול אותו בפתיחה' : 'נעול בפתיחת תקלה (ממולא בהמשך הטיפול) — לחץ כדי לאפשר מילוי בפתיחה'}
-                            style={on ? { background: '#E3FCEF', color: '#006644', borderColor: '#36B37E', opacity: 1 } : undefined}
-                            onClick={() => update(l => toggleCreate(l.panels[pi], f))}>🆕</button>
-                        );
-                      })()}
-                      <button className={btn} title="הסר מהטופס" onClick={() => update(l => { l.panels[pi].fields.splice(fi, 1); })}>✕</button>
-                    </div>
-                  ))}
-                </div>
-
-                {availableFields.length > 0 && (
-                  <select
-                    value=""
-                    onChange={e => { const k = e.target.value; if (k) update(l => { l.panels[pi].fields.push(k); }); }}
-                    className="self-start rounded-sm border border-dashed border-border bg-background px-2 py-1 text-xs text-muted-foreground"
-                  >
-                    <option value="">+ הוסף שדה לחלונית…</option>
-                    {availableFields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-                  </select>
-                )}
-              </div>
-            ))}
+            {draft.panels.map((p, pi) => !p.below && panelCard(p, pi))}
           </div>
+          {topCount > TOP_PANEL_COUNT && <div className="text-xs" style={{ color: '#974F0C' }}>⚠ {topCount} חלוניות עליונות — מומלץ עד {TOP_PANEL_COUNT} (⬇ להעברת חלונית מתחת)</div>}
+          {draft.panels.map((p, pi) => p.below && panelCard(p, pi))}
 
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={() => update(l => { l.panels.push({ name: 'חלונית חדשה', fields: [] }); })} className="cursor-pointer rounded-md border border-dashed border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground">

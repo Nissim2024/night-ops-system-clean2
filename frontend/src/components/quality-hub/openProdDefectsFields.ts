@@ -152,17 +152,12 @@ export const BUILTIN_ALWAYS_SHOWN_FIELDS = ['detectedApkVersion', 'detectedHotAp
   'testPhase'];
 
 // ── New-defect form (2026-10-09) ─────────────────────────────────────────
-// The create form uses the same layout as the update form; per panel the
-// layout may list which fields also show when OPENING a defect (`create`).
-// Fields QC marks Required (production field dump) always show there.
+// The create form uses the same layout as the update form, field for field
+// (user 2026-10-09: no 🆕 subset, nothing locked but what QC itself fills).
+// Fields QC marks Required (production field dump) carry "*" in both forms.
 export const CREATE_REQUIRED_FIELDS = new Set([
   'severity', 'priority', 'detectedBy', 'detectedOnDate', 'detectedInRelease', 'detectedInCycle',
   'environment', 'responsibility', 'system', 'crHbrNumberReference',
-]);
-// built-in choice for a panel that never set `create`
-export const DEFAULT_CREATE_FIELDS = new Set([
-  'status', 'assignedTo', 'qaTester', 'defectType', 'testPhase', 'environmentComponent', 'reproducible',
-  'detectedApkVersion', 'detectedHotAppApk', 'subModule', 'mainModule', 'platform',
 ]);
 // ── Test Phase follows the cycle (user, 2026-10-09) ─────────────────────
 // production defect → Production; Cycle 0 → Integration Test; Cycle 1-4,
@@ -215,7 +210,24 @@ export function withRequiredFields<P extends { fields: string[] }>(panels: P[]):
   return out;
 }
 
-export function createFieldsOf(panel: { fields: string[]; create?: string[] }): string[] {
-  return panel.fields.filter(f => CREATE_REQUIRED_FIELDS.has(f)
-    || (panel.create ? panel.create.includes(f) : DEFAULT_CREATE_FIELDS.has(f)));
+// ── Form shape (user, 2026-10-09) ─────────────────────────────────────────
+// Up to three panels side by side, and under them one full-width panel
+// ("שדות נוספים") — `below: true`. A layout saved before that (no panel
+// marked below) keeps its first three panels on top and gets the rest
+// merged into one "שדות נוספים" panel, so existing templates take the new
+// shape without anyone re-saving them.
+export const TOP_PANEL_COUNT = 3;
+export const MORE_FIELDS_PANEL = 'שדות נוספים';
+export type LayoutPanel = { name: string; fields: string[]; wide?: string[]; below?: boolean };
+export function normalizeLayout<P extends LayoutPanel>(panels: P[]): LayoutPanel[] {
+  if (panels.some(p => p.below)) return panels.map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] }));
+  const top = panels.slice(0, TOP_PANEL_COUNT).map(p => ({ ...p, fields: [...p.fields], wide: [...(p.wide ?? [])] }));
+  const rest = panels.slice(TOP_PANEL_COUNT);
+  if (rest.length === 0) return top;
+  return [...top, {
+    name: MORE_FIELDS_PANEL,
+    fields: rest.flatMap(p => p.fields),
+    wide: rest.flatMap(p => p.wide ?? []),
+    below: true,
+  }];
 }

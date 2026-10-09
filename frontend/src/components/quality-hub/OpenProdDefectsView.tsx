@@ -3,7 +3,7 @@ import ReactDOM from 'react-dom';
 import axios from 'axios';
 import { C, FONT, JIRA } from '../../theme';
 import { Card, Badge, BackLink, Avatar } from '../ui';
-import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels } from './openProdDefectsFields';
+import { TABLE_COLUMN_FIELDS, TABLE_FIELD_LABEL, DETAIL_FIELDS, DETAIL_FIELD_LABEL, ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, testPhaseFor, CREATE_REQUIRED_FIELDS, withRequiredFields, builtinPanels, normalizeLayout } from './openProdDefectsFields';
 import {
   hasHebrew, NameBadge, PersonAvatar, renderNotesField, DetailGroup,
   FieldChangeHistorySection, AttachmentsSection, parseNoteEntries, useColumnWidths, ColumnResizeHandle, useColumnFilters, ColumnFilterRow,
@@ -1206,7 +1206,7 @@ export const DefectDetailScreen: React.FC<{
   // Panels come from the admin-designed layout for this user (team -> role ->
   // default, AdminPanel "תבנית טופס תקלה", 2026-10-04) - replaces the old
   // per-browser localStorage picker. No layout set anywhere -> built-in panels.
-  const [serverLayout, setServerLayout] = useState<{ panels: { name: string; fields: string[]; wide?: string[] }[] } | null>(null);
+  const [serverLayout, setServerLayout] = useState<{ panels: { name: string; fields: string[]; wide?: string[]; below?: boolean }[] } | null>(null);
   useEffect(() => {
     let alive = true;
     axios.get(`${API}/qc/defect-form-layout`, { headers })
@@ -1216,9 +1216,10 @@ export const DefectDetailScreen: React.FC<{
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
   // + QC-required fields a saved layout predates, as in the create form
-  const baseGroups: DetailGroup[] = withRequiredFields(serverLayout
-    ? serverLayout.panels.map(pn => ({ title: pn.name, fields: pn.fields, wide: pn.wide }))
-    : defaultGroups);
+  // three panels on top + one full-width "שדות נוספים" under them (normalizeLayout)
+  const baseGroups: DetailGroup[] = withRequiredFields(
+    normalizeLayout(serverLayout ? serverLayout.panels : defaultGroups.map(g => ({ name: g.title, fields: g.fields, wide: g.wide })))
+      .map(pn => ({ title: pn.name, fields: pn.fields, wide: pn.wide, below: pn.below })));
   // 📎 attachments: wherever the layout placed it, else end of the first panel (full row).
   const detailGroups: DetailGroup[] = baseGroups.some(g => g.fields.includes(ATTACHMENTS_FIELD)) || baseGroups.length === 0
     ? baseGroups
@@ -1376,12 +1377,12 @@ export const DefectDetailScreen: React.FC<{
               request 2026-09-23) — each box below restores dir="rtl" for its
               own Hebrew title/labels/values, same technique CreateDefectScreen
               already uses for its own fields-flow container. */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
+          <div className="flex flex-col gap-4">
             {(() => {
               const groups = detailGroups
                 .map(g => ({ ...g, fields: g.fields.filter(k => k === ATTACHMENTS_FIELD || detail[k] !== undefined) }))
                 .filter(g => g.fields.length > 0);
-              return groups.map(group => (
+              const card = (group: DetailGroup) => (
                 <div
                   key={group.title}
                   dir="rtl"
@@ -1410,7 +1411,16 @@ export const DefectDetailScreen: React.FC<{
                     })}
                   </div>
                 </div>
-              ));
+              );
+              // top panels side by side, the full-width ones under them
+              return (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
+                    {groups.filter(g => !g.below).map(card)}
+                  </div>
+                  {groups.filter(g => g.below).map(card)}
+                </>
+              );
             })()}
           </div>
 

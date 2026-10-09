@@ -8,7 +8,7 @@ import {
   DefectFieldCell, DefectFieldsCtx, PersonTeam, ReleaseCycleOptionT, RefValue, TeamEnvComponents, loadReleaseScopedOptions, singleProjectForCr,
 } from './OpenProdDefectsView';
 import {
-  ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, createFieldsOf, DETAIL_FIELD_LABEL, testPhaseFor,
+  ATTACHMENTS_FIELD, ATTACHMENTS_FIELD_DEF, CREATE_REQUIRED_FIELDS, DETAIL_FIELD_LABEL, testPhaseFor, normalizeLayout,
   withRequiredFields, builtinPanels,
 } from './openProdDefectsFields';
 
@@ -22,8 +22,9 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 //   - Detected By / on Date / in Release / in Cycle are filled in for you
 //     (you, today, the running version's release and cycle);
 //   - the fields QC marks Required carry "*" and must be filled before creating;
-//   - every field sits where it sits in the update form; one the layout
-//     doesn't mark 🆕 is shown locked — it is filled later in the handling;
+//   - every field sits where it sits in the update form and can be filled
+//     (only what QC sets itself is locked); the full-width "שדות נוספים"
+//     panel starts folded so the form stays short;
 //   - Title, Description, the first comment (required by QC) and files.
 
 type ReleaseContext = {
@@ -172,28 +173,27 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
   // layout puts it (else end of the first panel), QC-required fields a saved
   // layout predates added the same way as there.
   const groups = useMemo(() => {
-    const base = withRequiredFields((panels ?? builtinPanels(detailFields))
+    const base = withRequiredFields(normalizeLayout(panels ?? builtinPanels(detailFields))
       .map(p => ({ ...p, wide: p.wide ?? [] })));
     return base.some(p => p.fields.includes(ATTACHMENTS_FIELD)) || base.length === 0 ? base
       : base.map((p, i) => (i === 0 ? { ...p, fields: [...p.fields, ATTACHMENTS_FIELD], wide: [...p.wide, ATTACHMENTS_FIELD] } : p));
   }, [panels, detailFields]);
-  // fillable when opening: the layout's 🆕 fields, QC-required ones, Test Phase
-  const createSet = useMemo(() => new Set([...groups.flatMap(p => createFieldsOf(p)), ...Array.from(CREATE_REQUIRED_FIELDS), 'testPhase']), [groups]);
+  // the full-width panels start folded; opened by the user or by a missing required field
+  const [openBelow, setOpenBelow] = useState<Set<number>>(new Set());
 
   const me = (() => { try { return localStorage.getItem('deploycenter_fullName') ?? ''; } catch { return ''; } })();
   const valueOf = (k: string) => (k === 'status' ? 'New' : k === 'id' ? ''
     : REF_KEYS.has(k) ? (refValues[k]?.label ?? '')
     : k === 'detectedBy' ? (values.detectedBy || me)   // the server writes you when nothing is chosen
     : (values[k] ?? ''));
-  const isEditable = (k: string) => k !== 'status' && k !== 'id' && createSet.has(k) && (REF_KEYS.has(k) ? editable.refFields.has(k) : editable.fields.has(k));
+  const isEditable = (k: string) => k !== 'status' && k !== 'id' && (REF_KEYS.has(k) ? editable.refFields.has(k) : editable.fields.has(k));
   const ctx: DefectFieldsCtx = {
     valueOf,
     isDirty: () => false,
     isEditable,
     lockReason: k => (k === 'status' ? 'נקבע ב-QC בפתיחת התקלה'
       : k === 'id' ? 'יוקצה ע"י QC עם השמירה'
-      : DETECTION_KEYS.has(k) ? 'ממולא אוטומטית — שינוי רק למנהל מערכת / מנהל שחרור'
-      : !createSet.has(k) ? 'ממולא בהמשך הטיפול בתקלה (לפתיחה בתבנית הטופס: 🆕)' : undefined),
+      : DETECTION_KEYS.has(k) ? 'ממולא אוטומטית — שינוי רק למנהל מערכת / מנהל שחרור' : undefined),
     required: CREATE_REQUIRED_FIELDS,
     missing,
     editingField, setEditingField,
@@ -258,6 +258,8 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
       ...(comment.trim() ? [] : ['Comments']),
     ];
     setMissing(miss);
+    // a missing required field inside a folded panel opens it
+    setOpenBelow(o => { const n = new Set(o); groups.forEach((g, i) => { if (g.below && g.fields.some(f => miss.has(f))) n.add(i); }); return n; });
     if (missText.length) { setError(`חסרים שדות חובה: ${missText.join(', ')}`); return; }
     setCreating(true); setError(null);
     try {
@@ -349,18 +351,42 @@ export const CreateDefectScreen: React.FC<Props> = ({ token, initialVersionId, o
         </div>
       )}
 
-      {/* the update form's panel grid, cell for cell */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
-        {groups.map((p, i) => (
-          <div key={`p${i}`} dir="rtl" className="overflow-hidden rounded-xl px-6 py-6" style={{ background: '#fff', height: '100%' }}>
-            <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{p.name}</div>
-            <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
-              {p.fields.map(f => (f === ATTACHMENTS_FIELD ? attachmentsCell
-                : <DefectFieldCell key={f} fieldKey={f} wide={!!p.wide?.includes(f)} ctx={ctx} />))}
-            </div>
+      {/* the update form's panels, cell for cell: top row + full-width ones under it */}
+      {(() => {
+        const fieldsGrid = (p: typeof groups[number]) => (
+          <div className="grid gap-x-3 gap-y-3" style={{ direction: 'ltr', gridTemplateColumns: 'repeat(auto-fill, minmax(170px, 1fr))' }}>
+            {p.fields.map(f => (f === ATTACHMENTS_FIELD ? attachmentsCell
+              : <DefectFieldCell key={f} fieldKey={f} wide={!!p.wide?.includes(f)} ctx={ctx} />))}
           </div>
-        ))}
-      </div>
+        );
+        return (
+          <>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 16, direction: 'ltr' }}>
+              {groups.map((p, i) => !p.below && (
+                <div key={`p${i}`} dir="rtl" className="overflow-hidden rounded-xl px-6 py-6" style={{ background: '#fff', height: '100%' }}>
+                  <div dir="auto" className="mb-3 text-start text-sm font-bold text-foreground">{p.name}</div>
+                  {fieldsGrid(p)}
+                </div>
+              ))}
+            </div>
+            {groups.map((p, i) => {
+              if (!p.below) return null;
+              const open = openBelow.has(i);
+              const filled = p.fields.filter(f => f !== ATTACHMENTS_FIELD && valueOf(f).trim()).length;
+              return (
+                <div key={`p${i}`} dir="rtl" className="rounded-xl px-6 py-5" style={{ background: '#fff' }}>
+                  <button type="button" className="cursor-pointer border-none bg-transparent p-0 text-start text-sm font-bold text-foreground"
+                    onClick={() => setOpenBelow(o => { const n = new Set(o); if (n.has(i)) n.delete(i); else n.add(i); return n; })}>
+                    {open ? '▾' : '▸'} {p.name}{' '}
+                    <span className="text-xs font-normal text-subtle-foreground">({p.fields.length} שדות{filled ? ` · ${filled} מולאו` : ''}{open ? '' : ' — לחץ לפתיחה'})</span>
+                  </button>
+                  {open && <div className="mt-3">{fieldsGrid(p)}</div>}
+                </div>
+              );
+            })}
+          </>
+        );
+      })()}
 
       {/* Description + the first comment, side by side as in the update form */}
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))', direction: 'ltr' }}>
