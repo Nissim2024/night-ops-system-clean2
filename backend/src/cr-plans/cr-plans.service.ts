@@ -145,6 +145,7 @@ export class CrPlansService {
       }[];
       monitoringPoints?: { id?: string; type: string; name: string; note?: string; phase?: number; assignedTeamId?: string; assignedUserName?: string }[];
     },
+    retried = false,
   ) {
     let resolvedTeamId: string;
 
@@ -203,7 +204,13 @@ export class CrPlansService {
       });
     }
 
-    const created = await prisma.crPlan.create({
+    // Two saves of the same new plan at once (the team-lead screen syncs every
+    // CR on load, and loads can overlap) both see "no plan" — the second create
+    // hits the unique key. Retry once: it now finds the plan and updates it
+    // (regression 2026-10-10: surfaced as 409 / formerly 500).
+    let created;
+    try {
+      created = await prisma.crPlan.create({
       data: {
         versionId,
         teamId: resolvedTeamId,
@@ -230,6 +237,10 @@ export class CrPlansService {
       },
       include,
     });
+    } catch (err: any) {
+      if (err?.code === 'P2002' && !retried) return this.upsert(versionId, user, dto, true);
+      throw err;
+    }
     // A brand-new plan's first save (e.g. a TARGET CR's very first defect
     // marked "requires special implementation") — write each new action's real
     // id back onto the TargetCrDefect it came from, same as reconcileActions
