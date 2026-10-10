@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import axios from 'axios';
 import { C } from '../theme';
 import { cn } from '../lib/utils';
-import { Card, Badge, VersionStageChip } from './ui';
+import { Card, Badge } from './ui';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectDrilldownModal } from './release-intelligence/DefectDrilldownModal';
 import { Cr360Panels, Cr360 } from './Cr360Panels';
@@ -32,9 +32,6 @@ interface CrCard {
   history: { at: string; version: string; team: string; field: string; reason: string | null; oldValue: string | null; newValue: string | null }[];
 }
 
-const SYNC_LABEL: Record<string, [string, string]> = {
-  ACTIVE: ['בתכולה', C.success], NEW: ['חדש', C.statusOpen], REMOVED: ['הוסר מהקובץ', C.danger],
-};
 const EVENT_LABEL: Record<string, string> = {
   SCOPE_ADDED: 'נוסף לתכולה', SCOPE_REMOVED: 'הוסר מהתכולה', ESTIMATE_CHANGED: 'שינוי הערכה', STATUS_CHANGED: 'שינוי סטטוס',
 };
@@ -58,7 +55,6 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
   const [card, setCard] = useState<CrCard | null>(null);
   const [loadingCard, setLoadingCard] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [drill, setDrill] = useState<{ versionId: string; versionName: string } | null>(null);
 
   const search = async (override?: string) => {
     const query = (override ?? q).trim();
@@ -151,8 +147,7 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
 
       {card && !loadingCard && (
         <CrCardView card={card} versions={versions}
-          onBack={matches && matches.length > 1 ? () => setCard(null) : undefined}
-          onDefects={(versionId, versionName) => setDrill({ versionId, versionName })}>
+          onBack={matches && matches.length > 1 ? () => setCard(null) : undefined}>
           {/* version picker — every panel below follows it */}
           {c360 && c360.versions.length > 1 && (
             <div className="flex flex-wrap items-center gap-2">
@@ -183,10 +178,6 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
           idList={idDrill.ids} onClose={() => setIdDrill(null)} />
       )}
 
-      {drill && card && (
-        <DefectDrilldownModal token={token} versionId={drill.versionId} screen="cycle-progress" filter="crReported"
-          value={card.crNumber} title={`תקלות CR ${card.crNumber} — ${drill.versionName}`} onClose={() => setDrill(null)} />
-      )}
     </div>
   );
 };
@@ -240,7 +231,9 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </div>
 );
 
-const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void; onDefects: (versionId: string, versionName: string) => void; children?: React.ReactNode }> = ({ card, versions, onBack, onDefects, children }) => {
+// "במערכת" (per-version teams / plans / testers + a defects button) was removed
+// 2026-10-10 — the CR picture below the card already shows all of it, per version.
+const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void; children?: React.ReactNode }> = ({ card, onBack, children }) => {
   const maxEffort = Math.max(1, ...card.teamEfforts.map(t => t.days));
   const teamSum = card.teamEfforts.reduce((s, t) => s + t.days, 0);
   return (
@@ -309,58 +302,6 @@ const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void;
           )}
         </Card>
       </div>
-
-      <Card padding={4}>
-        <div className="mb-3 text-sm font-semibold text-foreground">במערכת</div>
-        {card.inSystem.length === 0 ? (
-          <div className="text-xs text-subtle-foreground">ה-CR עדיין לא שובץ לאף גרסה ב-DeployCenter</div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {card.inSystem.map(v => {
-              const ver = versions.find(x => x.id === v.versionId);
-              return (
-                <div key={v.versionId} className="rounded-lg border border-border p-3">
-                  <div className="mb-2 flex flex-wrap items-center gap-2">
-                    <span className="text-sm font-bold text-foreground">{v.versionName}</span>
-                    {ver && <VersionStageChip version={ver} size="xs" />}
-                    {v.isCore && <Badge color={C.brand} bg={C.brandDim}>Core</Badge>}
-                    {v.isStandAlone && <Badge color={C.statusWaiting} bg={C.bgWaiting}>Stand Alone</Badge>}
-                    <button onClick={() => onDefects(v.versionId, v.versionName)}
-                      className="ms-auto cursor-pointer rounded-md border border-border bg-card px-2.5 py-1 text-xs font-semibold text-primary">
-                      🐞 תקלות ה-CR בגרסה
-                    </button>
-                  </div>
-                  <table className="w-full table-fixed border-collapse text-[13px]">
-                    <colgroup><col /><col style={{ width: 110 }} /><col style={{ width: 120 }} /><col style={{ width: 130 }} /></colgroup>
-                    <thead>
-                      <tr>{['צוות', 'הערכה (ימים)', 'בתכולה', 'תוכנית CR'].map(h => (
-                        <th key={h} className="border-b border-border px-2 py-1.5 text-right text-xs font-semibold text-subtle-foreground">{h}</th>
-                      ))}</tr>
-                    </thead>
-                    <tbody>
-                      {v.teams.map(t => {
-                        const [lbl, col] = t.isArchived ? ['בארכיון', C.textMuted] : (SYNC_LABEL[t.syncStatus] ?? [t.syncStatus, C.textMuted]);
-                        const plan = v.plans.find(p => p.team === t.team);
-                        return (
-                          <tr key={t.team} className="border-b border-border">
-                            <td className="truncate px-2 py-1.5 text-foreground">{t.team}</td>
-                            <td className="px-2 py-1.5 tabular-nums text-muted-foreground">{t.teamEstimateDays ?? '—'}</td>
-                            <td className="px-2 py-1.5 text-xs font-semibold" style={{ color: col }} title={t.archivedReason ?? undefined}>{lbl}</td>
-                            <td className="px-2 py-1.5 text-xs text-muted-foreground">
-                              {!plan ? '—' : plan.notNeeded ? 'לא נדרשת' : plan.approved ? <span style={{ color: C.success }}>✓ אושרה</span> : 'טרם אושרה'}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {v.testers.length > 0 && <div className="mt-2 text-xs text-muted-foreground">בודקי QA: {v.testers.join(', ')}</div>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
 
       {card.history.length > 0 && (
         <Card padding={4}>

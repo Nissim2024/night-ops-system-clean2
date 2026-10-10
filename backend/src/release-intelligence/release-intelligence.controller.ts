@@ -138,8 +138,11 @@ export class ReleaseIntelligenceController {
   }
 
   @Get('cr-quality/:versionId')
-  getCrQualityScores(@Param('versionId') versionId: string) {
-    return this.service.getCrQualityScores(versionId);
+  async getCrQualityScores(@Param('versionId') versionId: string) {
+    const scores = await this.service.getCrQualityScores(versionId);
+    // a failing CR gets its risk automatically (2026-10-10) — not awaited, the card needn't wait
+    this.service.syncCrQualityRisks(versionId, scores).catch(() => {});
+    return scores;
   }
 
   @Get('timeline-activities/:versionId')

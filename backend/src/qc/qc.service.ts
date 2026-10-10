@@ -651,6 +651,24 @@ const CR_TEST_SUMMARY_SQL_SCOPED = `
     AND RQR.RQRL_RELEASE_ID = :releaseId
 `;
 
+// The CR's testers in QC (user, 2026-10-10 — CR card of a historical version
+// DeployCenter never managed): REQ "Assign To" = RQ_USER_05, "SecondaryTester"
+// = RQ_USER_27 (confirmed from the REQ export's own SQL, rq_user_05 AS
+// Assign_To / rq_user_27 AS SecondaryTester), on the CR's REQ rows. Release-
+// scoped first, like CR_TEST_SUMMARY_SQL_SCOPED. Pre-12c, ASCII-only.
+const CR_REQ_TESTERS_SQL_SCOPED = `
+  SELECT DISTINCT RQ.RQ_USER_05 AS ASSIGN_TO, RQ.RQ_USER_27 AS SECONDARY_TESTER
+  FROM REQ RQ, REQ_RELEASES RQR
+  WHERE RQ.RQ_USER_02 = :crNumber
+    AND RQR.RQRL_REQ_ID = RQ.RQ_REQ_ID
+    AND RQR.RQRL_RELEASE_ID = :releaseId
+`;
+const CR_REQ_TESTERS_SQL = `
+  SELECT DISTINCT RQ_USER_05 AS ASSIGN_TO, RQ_USER_27 AS SECONDARY_TESTER
+  FROM REQ
+  WHERE RQ_USER_02 = :crNumber
+`;
+
 // Release-wide (not cycle-scoped): a defect isn't tied to one specific test
 // cycle the way test coverage is, so filtering by BG_DETECTED_IN_RCYC (as
 // this query used to, alongside a BG_USER_05 = 'Sanity Test' phase filter)
@@ -1147,7 +1165,7 @@ const CR_DEFECT_INDICATORS_SQL = `
   LEFT JOIN RELEASE_CYCLES detected_rcyc ON detected_rcyc.RCYC_ID = BUG.BG_DETECTED_IN_RCYC
   LEFT JOIN RELEASE_CYCLES target_rcyc ON target_rcyc.RCYC_ID = BUG.BG_TARGET_RCYC
   WHERE (BG_DETECTED_IN_REL = :releaseId OR BG_TARGET_REL = :releaseId)
-    AND BG_USER_10 LIKE :crNumber || ' %'
+    AND (BG_USER_10 LIKE :crNumber || ' %' OR TRIM(BG_USER_10) = :crNumber OR TRIM(BG_USER_10) LIKE '% - ' || :crNumber)
 `;
 
 // Single-defect full-record lookup — same SELECT list as TARGET_CR_DEFECTS_SQL
@@ -1329,7 +1347,7 @@ function mapRowToTargetDefect(r: any): TargetDefectDto {
     targetRelease:          r.TARGET_RELEASE          ?? '',
     targetCycle:            r.TARGET_CYCLE            ?? '',
     crStatus:               r.CR_STATUS               ?? '',
-    dropNumber:             r['Drop#']                ?? '',
+    dropNumber:             r['Drop#'] ?? r['DROP#']  ?? '',   // Oracle quoted alias / dev seed (Excel header)
     detectedApkVersion:     r.DETECTED_APK_VERSION    ?? '',
     detectedHotAppApk:      r.DETECTED_HOT_APP_APK    ?? '',
     targetHotAppApk:        r.TARGET_HOT_APP_APK      ?? '',
@@ -2135,7 +2153,44 @@ export async function getDefectReleaseContext(userId: string, date?: string): Pr
 // components are its "QC Environment Components" (AdminPanel), else its
 // systems (apps — what the deployments module uses); a team with neither
 // gets the full list. `all` = every team's components + values already used.
-export async function getTeamEnvironmentComponents(): Promise<{ teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] }> {
+// The Environment Components each Responsibility value has really used in QC
+// (BG_USER_03 → BG_USER_49), most used first — the team's systems when
+// DeployCenter has none set for it (2026-10-10: most teams had none / no
+// Responsibility link, so the form fell back to the full list). A defect with
+// several teams ("A;B") counts for each.
+const RESPONSIBILITY_COMPONENTS_SQL = `
+  SELECT BG_USER_03 AS R, BG_USER_49 AS V, COUNT(*) AS N
+  FROM BUG
+  WHERE BG_USER_49 IS NOT NULL AND BG_USER_03 IS NOT NULL
+  GROUP BY BG_USER_03, BG_USER_49
+`;
+async function responsibilityComponentHistory(): Promise<Record<string, string[]>> {
+  const { enabled } = await getOracleConfig();
+  const rows: { r: string; v: string; n: number }[] = enabled
+    ? await qcMemo('responsibility-component-history', async () => {
+        const conn = await oracleConnect();
+        try {
+          const res = await conn.execute(RESPONSIBILITY_COMPONENTS_SQL);
+          return ((res.rows ?? []) as any[]).map(x => ({ r: String(x.R ?? ''), v: String(x.V ?? ''), n: Number(x.N) || 0 }));
+        } finally {
+          await conn.close().catch(() => {});
+        }
+      }, 10 * 60_000).catch(() => [])
+    : (loadRealAllBugs() ?? []).map(b => ({ r: String(b.RESPONSIBILITY ?? ''), v: String(b.ENVIRONMENT_COMPONNENT ?? ''), n: 1 }));
+  const counts = new Map<string, Map<string, number>>();
+  for (const { r, v, n } of rows) {
+    const comp = v.trim();
+    if (!comp) continue;
+    for (const team of r.split(';').map(s => s.trim().toLowerCase()).filter(Boolean)) {
+      const m = counts.get(team) ?? new Map<string, number>();
+      m.set(comp, (m.get(comp) ?? 0) + n);
+      counts.set(team, m);
+    }
+  }
+  return Object.fromEntries(Array.from(counts, ([team, m]) => [team, Array.from(m).sort((a, b) => b[1] - a[1]).map(([c]) => c)]));
+}
+
+export async function getTeamEnvironmentComponents(): Promise<{ teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[]; history: Record<string, string[]> }> {
   const teams = await prisma.team.findMany({ where: { active: true }, select: { name: true, qcResponsibilityValue: true, qcEnvironmentComponents: true, apps: true } });
   const out = teams.map(t => ({
     name: t.name,
@@ -2158,7 +2213,7 @@ export async function getTeamEnvironmentComponents(): Promise<{ teams: { name: s
   } else {
     for (const r of loadRealAllBugs() ?? []) { const v = String(r.ENVIRONMENT_COMPONNENT ?? '').trim(); if (v) all.add(v); }
   }
-  return { teams: out, all: [...all].sort((a, b) => a.localeCompare(b)) };
+  return { teams: out, all: [...all].sort((a, b) => a.localeCompare(b)), history: await responsibilityComponentHistory() };
 }
 
 // ── QC edit locks (user, 2026-10-09) ───────────────────────────────────────
@@ -2706,6 +2761,17 @@ export function bugStatusBucket(status: string | null | undefined): string {
 // an Israeli-midnight Oracle DATE fell on the previous day) while the drill
 // sliced String(Date) ("Mon Oct 05 ...") and could never match. Strings that
 // already start with a date (mock rows) are taken as-is.
+// The CR number a CR/HBR reference (BG_USER_10) or CR Reference Number
+// (BG_USER_58) holds. Real QC values are "13083 - name" or just "13083", but
+// some CRs' list entries are "name - 12461" (2026-10-10: 44 real defects of
+// CRs 12461 / 12529 never matched their CR). Release names like
+// "ITv08-2024" (no space before the dash) are not CR numbers.
+export function crNumberOf(v: string | null | undefined): string | null {
+  const s = v ?? '';
+  const m = /^\s*(\d+)/.exec(s) ?? /\s-\s*(\d{4,6})\s*$/.exec(s);
+  return m ? m[1] : null;
+}
+
 export function localIsoDay(v: string | Date | null | undefined): string {
   if (!v) return '';
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}/.test(v)) return v.slice(0, 10);
@@ -2918,7 +2984,32 @@ const MOCK_ALL_DEFECTS_ROWS: AllDefectsRawRow[] = [
 // though this dev-only mock fixture doesn't carry every one of DefectDto's
 // 70 fields — everything beyond the 8 fields the fixture actually has comes
 // back empty in mock mode only; real Oracle populates all of them for real.
+// DEV ONLY: a real seed defect (allbugs.local.json) as the full DefectDto the
+// Oracle list query returns — every field, not the dashboard's 11 (user report
+// 2026-10-10: CR/HBR Number reference and ~60 other columns were "—" in the
+// defects-module lists while the seed row had them).
+function realBugToDefectDto(r: any): DefectDto {
+  const { summary: _s, detectedBy, detectedOnDate, ...t } = mapRowToTargetDefect(r);
+  return {
+    ...t,
+    reporter: detectedBy,
+    discoveryDate: detectedOnDate ? new Date(detectedOnDate).toLocaleDateString('he-IL') : '',
+  };
+}
+
+// DEV ONLY: one release's real seed defects (what DEFECTS_SQL returns for it
+// in production); null when the seed has none → callers keep MOCK_DEFECTS.
+function realSeedDefectsOfRelease(relName: string | null | undefined): DefectDto[] | null {
+  const rows = loadRealAllBugs();
+  const name = (relName ?? '').trim();
+  if (!rows || !name) return null;
+  const out = rows.filter(r => String(r.DETECTED_IN_RELEASE ?? '').trim() === name).map(realBugToDefectDto);
+  return out.length ? out : null;
+}
+
 function allDefectsRawRowToDefectDto(r: AllDefectsRawRow): DefectDto {
+  const real = realAllBugById(String(r.DEFECT_ID));
+  if (real) return realBugToDefectDto(real);
   return {
     id: String(r.DEFECT_ID),
     title: r.TITLE || `תקלה #${r.DEFECT_ID}`,
@@ -3106,15 +3197,15 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
 // (BG_USER_14), team = BG_USER_03, owner = BG_RESPONSIBLE. "נושא" dropped.
 // Pre-12c Oracle + ASCII-only SQL text (see QC notes): no FETCH FIRST.
 // The QC releases holding defects of one CR (CR card, 2026-10-10). Same CR
-// match as the TARGET-CR queries: "13083 - name" or just "13083". Pre-12c,
-// ASCII-only SQL text.
+// match as the TARGET-CR queries: "13083 - name", "name - 13083" or just
+// "13083" (crNumberOf). Pre-12c, ASCII-only SQL text.
 const CR_DEFECT_RELEASES_SQL = `
   SELECT detected_rel.REL_NAME AS REL_NAME,
          COUNT(*) AS DEFECTS,
          SUM(CASE WHEN LOWER(TRIM(BG_USER_04)) IN ('closed', 'canceled', 'cancelled') THEN 0 ELSE 1 END) AS OPEN_DEFECTS
   FROM BUG
   JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
-  WHERE (BG_USER_10 LIKE :crNumber || ' %' OR TRIM(BG_USER_10) = :crNumber)
+  WHERE (BG_USER_10 LIKE :crNumber || ' %' OR TRIM(BG_USER_10) = :crNumber OR TRIM(BG_USER_10) LIKE '% - ' || :crNumber)
   GROUP BY detected_rel.REL_NAME
 `;
 
@@ -3204,7 +3295,7 @@ export interface DefectDimItem { key: string; label: string; hidden?: boolean }
 const DEFECT_DIMS_KEY = 'DEFECTS_DASHBOARD_DIMS';
 const DIM_FIELD_KINDS = new Set(['list', 'person', 'text', 'number']);
 const MAX_ADDED_DIMS = 25;
-// CR fields hold "13083 - name": grouped by the CR number (one CR, one value)
+// CR fields hold "13083 - name" (or "name - 12461"): grouped by the CR number (one CR, one value)
 const CR_DIM_FIELDS = new Set(['crHbrNumberReference', 'crReferenceNumber']);
 export function defectDimFieldOptions(): { key: string; label: string; kind: string }[] {
   return Object.entries(QC_DEFECT_FIELDS)
@@ -3289,7 +3380,7 @@ export function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (log
     if (!v) return -1;
     const field = extraFields[fi];
     if (QC_DEFECT_FIELDS[field]?.kind === 'person') v = personName(v);
-    const crNo = CR_DIM_FIELDS.has(field) ? /^\s*(\d+)/.exec(v)?.[1] : undefined;
+    const crNo = CR_DIM_FIELDS.has(field) ? crNumberOf(v) ?? undefined : undefined;
     const key = crNo ?? v;
     let i = extraMaps[fi].get(key);
     if (i === undefined) { i = extraMaps[fi].size; extraMaps[fi].set(key, i); extraLabels[fi].push(v); }
@@ -4206,7 +4297,10 @@ export class QcService implements OnApplicationBootstrap {
 
   private async getDefectsUncached(versionId: string, cyclePreference?: 'REHEARSAL' | 'GO_LIVE'): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
-    if (!enabled) return MOCK_DEFECTS;
+    if (!enabled) {
+      const version = await prisma.version.findUnique({ where: { id: versionId }, select: { qcRelease: { select: { relName: true } } } });
+      return realSeedDefectsOfRelease(version?.qcRelease?.relName) ?? MOCK_DEFECTS;
+    }
 
     if (!cyclePreference) {
       const relId = await this.getRelId(versionId);
@@ -4497,7 +4591,8 @@ export class QcService implements OnApplicationBootstrap {
 
   private async getDefectsByRelIdUncached(relId: number, cycleName?: string): Promise<DefectDto[]> {
     const { enabled } = await getOracleConfig();
-    const defects = enabled ? await this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId }) : MOCK_DEFECTS;
+    const defects = enabled ? await this.runDefectsQuery(DEFECTS_SQL, { releaseId: relId })
+      : realSeedDefectsOfRelease(await this.mockReleaseName(relId)) ?? MOCK_DEFECTS;
     if (!cycleName) return defects;
     const byCycle = await this.getDefectsByCycleByRelId(relId).catch((): DefectByCycleDto[] => []);
     const idsInCycle = new Set(byCycle.filter(d => d.detectedInCycle === cycleName).map(d => d.id));
@@ -4757,7 +4852,7 @@ export class QcService implements OnApplicationBootstrap {
     } else {
       const real = loadRealTargetDefects();
       all = (real ?? []).filter(d =>
-        d.crHbrNumberReference.startsWith(`${crNumber} `) &&
+        crNumberOf(d.crHbrNumberReference) === crNumber &&
         (d.detectedInRelease === releaseName || d.targetRelease === releaseName),
       );
     }
@@ -5153,17 +5248,21 @@ export class QcService implements OnApplicationBootstrap {
     let out: DefectDto[];
     if (mock) {
       const byId = new Map(rows.map(r => [String(r.DEFECT_ID), r]));
-      out = permitted.map(id => byId.get(id)!).filter(Boolean).map(r => ({
-        ...allDefectsRawRowToDefectDto({
-          DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS, SEVERITY: r.SEVERITY, MAIN_MODULE: realAllBugById(String(r.DEFECT_ID))?.MAIN_MODULE ?? null,
-          RESPONSIBILITY: r.RESPONSIBILITY, ASSIGNED_TO: r.ASSIGNED_TO, REOPEN_YN: null,
-          DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE, DETECTED_ON_DATE: r.DETECTED_ON_DATE, ENVIRONMENT_COMPONENT: r.SYSTEM_NAME,
-          TITLE: realAllBugById(String(r.DEFECT_ID))?.SUMMARY || realAllBugById(String(r.DEFECT_ID))?.SUBJECT || `תקלה לדוגמה #${r.DEFECT_ID} — ${r.SYSTEM_NAME ?? ''}`,
-        }),
-        subModule: r.SUB_MODULE ?? '', reporter: r.DETECTED_BY ?? '',
-        environment: r.ENVIRONMENT ?? '',
-        modified: r.MODIFIED ? new Date(r.MODIFIED as any).toLocaleDateString('he-IL') : '',
-      }));
+      out = permitted.map(id => byId.get(id)!).filter(Boolean).map(r => {
+        const real = realAllBugById(String(r.DEFECT_ID));
+        // the real seed row has every field; synthetic rows only these
+        return real ? realBugToDefectDto(real) : {
+          ...allDefectsRawRowToDefectDto({
+            DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS, SEVERITY: r.SEVERITY, MAIN_MODULE: null,
+            RESPONSIBILITY: r.RESPONSIBILITY, ASSIGNED_TO: r.ASSIGNED_TO, REOPEN_YN: null,
+            DETECTED_IN_RELEASE: r.DETECTED_IN_RELEASE, DETECTED_ON_DATE: r.DETECTED_ON_DATE, ENVIRONMENT_COMPONENT: r.SYSTEM_NAME,
+            TITLE: `תקלה לדוגמה #${r.DEFECT_ID} — ${r.SYSTEM_NAME ?? ''}`,
+          }),
+          subModule: r.SUB_MODULE ?? '', reporter: r.DETECTED_BY ?? '',
+          environment: r.ENVIRONMENT ?? '',
+          modified: r.MODIFIED ? new Date(r.MODIFIED as any).toLocaleDateString('he-IL') : '',
+        };
+      });
     } else {
       out = await this.getDefectsByIds(permitted);
     }
@@ -5541,7 +5640,7 @@ export class QcService implements OnApplicationBootstrap {
       const m = new Map<string, { defects: number; open: number }>();
       for (const b of rows) {
         const ref = String(b.CR_HBR_NUMBER_REFERENCE ?? '').trim();
-        if (/^(\d+)/.exec(ref)?.[1] !== cr) continue;
+        if (crNumberOf(ref) !== cr) continue;
         const rel = String(b.DETECTED_IN_RELEASE ?? '').trim();
         if (!rel) continue;
         const e = m.get(rel) ?? { defects: 0, open: 0 };
@@ -5600,6 +5699,34 @@ export class QcService implements OnApplicationBootstrap {
       return summary ? String(summary) : null;
     } catch (err: any) {
       this.logger.error(`Oracle getCrTestSummary: ${err.message}`);
+      throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // Testers of a CR in QC (REQ Assign To / SecondaryTester), as QC logins.
+  // Dev: seed-data/req-testers.local.json (scripts/import-req-testers-seed.js).
+  async getCrReqTesters(crNumber: string, versionId?: string): Promise<{ assignTo: string[]; secondary: string[] }> {
+    const split = (vals: unknown[]) => Array.from(new Set(vals.flatMap(v => String(v ?? '').split(/[;,]/)).map(s => s.trim()).filter(Boolean)));
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      try {
+        const seed = JSON.parse(fs.readFileSync(devSeedPath('req-testers.local.json'), 'utf-8'));
+        const e = seed?.[crNumber];
+        return { assignTo: split(e?.assignTo ?? []), secondary: split(e?.secondary ?? []) };
+      } catch { return { assignTo: [], secondary: [] }; }
+    }
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const releaseId = versionId ? await this.getRelId(versionId) : null;
+      let rows: any[] = [];
+      if (releaseId) rows = (await conn.execute(CR_REQ_TESTERS_SQL_SCOPED, { crNumber, releaseId })).rows ?? [];
+      if (rows.length === 0) rows = (await conn.execute(CR_REQ_TESTERS_SQL, { crNumber })).rows ?? [];
+      return { assignTo: split(rows.map(r => r.ASSIGN_TO)), secondary: split(rows.map(r => r.SECONDARY_TESTER)) };
+    } catch (err: any) {
+      this.logger.error(`Oracle getCrReqTesters: ${err.message}`);
       throw err;
     } finally {
       if (conn) await conn.close().catch(() => {});

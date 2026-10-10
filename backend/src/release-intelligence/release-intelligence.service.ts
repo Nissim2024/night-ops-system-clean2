@@ -1,8 +1,8 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope, isProductionEnvironment } from '../qc/qc.service';
+import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope, isProductionEnvironment, crNumberOf, getReleaseCycleOptions, ReleaseCycleOption } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
-import { Cr360Defect, Cr360PlanTeam, isOpenStatus, testsFinished, planStateOf, planOverall, crTrafficLight } from './cr-360';
+import { Cr360Defect, Cr360PlanTeam, isOpenStatus, testsFinished, planStateOf, planOverall, crTrafficLight, orderCycles, crQualityState } from './cr-360';
 import { prisma } from '../prisma-client';
 import { assertNotStale, editorName } from '../stale-write';
 
@@ -98,6 +98,20 @@ const CYCLE_LABEL: Record<string, string> = {
 // everything reported against the CR in this version EXCEPT Canceled status
 // and Production-environment defects (spec confirmed 2026-09-01).
 const CR_QUALITY_TARGET = 0.15;
+// Bug Types that aren't a defect in the CR's code — still counted in the
+// score (user, 2026-10-10: "don't exclude, but say so")
+const NON_CODE_DEFECT_TYPES = new Set(['change requests', 'environment issue', 'setup', 'configuration', 'installation', 'information']);
+// The risk raised automatically for a CR whose score misses the target
+// (user, 2026-10-10) — one per CR per version, found again by this title.
+const CR_QUALITY_RISK_TITLE = 'ציון איכות הפיתוח לא עומד ביעד';
+const CR_QUALITY_RISK_BY = 'אוטומטי — ציון איכות פיתוח';
+const CR_QUALITY_RISK_MITIGATION = [
+  '☐ סקירת התקלות שבציון — האם הן באמת בעיות קוד (Bug Type)',
+  '☐ כל התיקונים נבדקו מחדש — אין תקלות פתוחות או ממתינות לבדיקה חוזרת',
+  '☐ רגרסיה מורחבת על אזורי ה-CR',
+  '☐ בתוכנית ההטמעה: תוכנית חזרה (Rollback), נקודות בקרה וניטור לבוקר שאחרי (ועלייה מדורגת אם אפשר)',
+  '☐ אישור מנהל הגרסה לקבלת הסיכון',
+].join('\n');
 const CR_QUALITY_SEVERITY_WEIGHT: Record<string, number> = {
   'Show Stopper': 1, 'Severe': 0.8, 'Medium': 0.5, 'Low': 0.05,
 };
@@ -106,11 +120,8 @@ const CR_QUALITY_SEVERITY_WEIGHT: Record<string, number> = {
 // (BG_USER_10, "13083 - name") - filled on ~all defects and already what the
 // TARGET-CR indicators query matches on (BG_USER_10 LIKE :crNumber || ' %');
 // CR Reference Number (BG_USER_58) is rarely set and also "number - name".
-// Compare leading CR numbers, BG_USER_10 first.
-function crNum(v: string | null | undefined): string | null {
-  const m = /^\s*(\d+)/.exec(v ?? '');
-  return m ? m[1] : null;
-}
+// Compare CR numbers (crNumberOf: "13083 - name" or "name - 13083"), BG_USER_10 first.
+const crNum = crNumberOf;
 export function defectCr(d: DefectDto): string | null {
   return crNum(d.crHbrNumberReference) ?? crNum(d.crReferenceNumber);
 }
@@ -1263,6 +1274,8 @@ export class ReleaseIntelligenceService {
       } catch (err: any) {
         this.logger.error(`Daily QA snapshot failed for version ${v.id}: ${err?.message ?? err}`);
       }
+      // CRs whose development quality misses the target get their risk (2026-10-10)
+      await this.syncCrQualityRisks(v.id).catch(err => this.logger.error(`CR quality risks failed for version ${v.id}: ${err?.message ?? err}`));
     }
   }
 
@@ -2668,6 +2681,7 @@ export class ReleaseIntelligenceService {
   // scored and is left out of the result entirely, not counted as pass or fail.
   async getCrQualityScores(versionId: string): Promise<{
     crNumber: string; crLabel: string; defectCount: number; actualEffortDays: number | null; score: number | null; meetsTarget: boolean | null;
+    nonCode: { type: string; count: number }[];
   }[]> {
     const [defects, vcaRows] = await Promise.all([
       this.getTestingDefects(versionId).catch((): DefectDto[] => []),
@@ -2697,20 +2711,82 @@ export class ReleaseIntelligenceService {
       const crDefects = defects.filter(d => isCrQualityDefect(d, cr.crNumber));
       const hasEffort = cr.actualEffortDays != null && cr.actualEffortDays > 0;
       const score = hasEffort ? crDefects.reduce((s, d) => s + (CR_QUALITY_SEVERITY_WEIGHT[d.severity] ?? 0), 0) / (cr.actualEffortDays as number) : null;
+      // counted, but flagged (user, 2026-10-10): defect types that aren't a code
+      // problem — the score may be inflated by them
+      const nonCode = new Map<string, number>();
+      for (const d of crDefects) if (NON_CODE_DEFECT_TYPES.has((d.defectType ?? '').trim().toLowerCase())) nonCode.set(d.defectType.trim(), (nonCode.get(d.defectType.trim()) ?? 0) + 1);
       return {
         crNumber: cr.crNumber, crLabel: cr.crLabel, defectCount: crDefects.length,
         actualEffortDays: cr.actualEffortDays, score, meetsTarget: score == null ? null : score <= CR_QUALITY_TARGET,
+        nonCode: Array.from(nonCode, ([type, count]) => ({ type, count })),
       };
     });
   }
 
+
+  // ── automatic risk for a CR whose development quality misses the target ──
+  // (user, 2026-10-10). One ReleaseRisk per CR per version, found again by its
+  // title; created OPEN with the mitigation checklist, after that only its
+  // description (the current score) is refreshed — status / mitigation /
+  // owner are the team's. Closing it ("בטיפול" / "סגור") is how the CR card's
+  // quality reason is cleared. Only for versions DeployCenter manages and are
+  // still live. Runs from the nightly snapshot, the CR card and the RI quality
+  // card; serialized per version so two loads can't create it twice.
+  private qualityRiskSyncs = new Map<string, Promise<boolean>>();
+  syncCrQualityRisks(versionId: string, scores?: Awaited<ReturnType<ReleaseIntelligenceService['getCrQualityScores']>>): Promise<boolean> {
+    const prev = this.qualityRiskSyncs.get(versionId) ?? Promise.resolve(false);
+    const next = prev.catch(() => false).then(() => this.syncCrQualityRisksNow(versionId, scores));
+    this.qualityRiskSyncs.set(versionId, next);
+    next.finally(() => { if (this.qualityRiskSyncs.get(versionId) === next) this.qualityRiskSyncs.delete(versionId); }).catch(() => {});
+    return next;
+  }
+
+  private async syncCrQualityRisksNow(versionId: string, scoresArg?: Awaited<ReturnType<ReleaseIntelligenceService['getCrQualityScores']>>): Promise<boolean> {
+    const version = await prisma.version.findUnique({ where: { id: versionId }, select: { isQcHistorical: true, isArchived: true, status: true } });
+    if (!version || version.isQcHistorical || version.isArchived || ['COMPLETED', 'ROLLED_BACK'].includes(version.status)) return false;
+    const scores = scoresArg ?? await this.getCrQualityScores(versionId);
+    const failing = scores.filter(s => crQualityState(s.score, CR_QUALITY_TARGET) === 'fail');
+    if (failing.length === 0) return false;
+    const existing = await prisma.releaseRisk.findMany({
+      where: { versionId, crNumber: { in: failing.map(s => s.crNumber) }, title: { startsWith: CR_QUALITY_RISK_TITLE } },
+      select: { id: true, crNumber: true, status: true, description: true, title: true },
+    });
+    const describe = (s: (typeof failing)[number]) => {
+      const nonCodeN = s.nonCode.reduce((n, x) => n + x.count, 0);
+      return `ציון ${Math.round(s.score! * 1000) / 1000} (היעד: עד ${CR_QUALITY_TARGET}) — ${s.defectCount} תקלות בסביבות הבדיקה, משוקללות לפי חומרה, ÷ ${Math.round((s.actualEffortDays ?? 0) * 10) / 10} ימי פיתוח בפועל.`
+        + (nonCodeN ? `\nמתוכן ${nonCodeN} תקלות מסוג שאינו בעיית קוד (${s.nonCode.map(x => `${x.type}: ${x.count}`).join(', ')}) — נספרות בציון, וייתכן שהן מנפחות אותו.` : '');
+    };
+    let created = false;
+    let creatorId: string | null | undefined;
+    for (const s of failing) {
+      const risk = existing.find(r => r.crNumber === s.crNumber);
+      const description = describe(s);
+      // the label usually starts with the CR number already ("13083 - name")
+      const title = `${CR_QUALITY_RISK_TITLE} — ${s.crLabel?.trim().startsWith(s.crNumber) ? s.crLabel.trim() : `CR ${s.crNumber}${s.crLabel ? ` ${s.crLabel}` : ''}`}`;
+      if (risk) {
+        if (risk.status !== 'CLOSED' && (risk.description !== description || risk.title !== title)) await prisma.releaseRisk.update({ where: { id: risk.id }, data: { description, title } });
+        continue;
+      }
+      // createdBy must be a user — the first admin; the risk is marked as automatic by updatedByName
+      if (creatorId === undefined) creatorId = (await prisma.user.findFirst({ where: { role: 'ADMIN' }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id ?? null;
+      if (!creatorId) return created;
+      await prisma.releaseRisk.create({ data: {
+        versionId, crNumber: s.crNumber, title,
+        description, severity: 'MEDIUM', probability: 'גבוהה', impact: 'תקלות שלא נמצאו בבדיקות עלולות להתגלות בייצור',
+        mitigation: CR_QUALITY_RISK_MITIGATION, status: 'OPEN', createdBy: creatorId, updatedByName: CR_QUALITY_RISK_BY,
+      } as any });
+      created = true;
+    }
+    return created;
+  }
 
   // ── CR card: the full picture of one CR in one version (2026-10-10) ────────
   // See cr-360.ts. versionId missing / not one of the CR's → its latest version.
   async getCr360(crNumber: string, versionIdArg?: string) {
     const cr = String(crNumber ?? '').trim();
     const versionSelect = { id: true, name: true, plannedStart: true, createdAt: true, isArchived: true, isQcHistorical: true,
-      integrationStart: true, integrationEnd: true, qaStart: true, qaEnd: true, plannedRehearsalStart: true, plannedRehearsalEnd: true } as const;
+      integrationStart: true, integrationEnd: true, qaStart: true, qaEnd: true, plannedRehearsalStart: true, plannedRehearsalEnd: true,
+      qcRelease: { select: { relId: true, relName: true } } } as const;
     const [rows, qcRels] = await Promise.all([
       prisma.versionCrAssignment.findMany({
         where: { crNumber: cr, syncStatus: { not: 'REMOVED' } },
@@ -2755,7 +2831,7 @@ export class ReleaseIntelligenceService {
     const vRows = rows.filter(r => r.versionId === versionId);
     const crLabel = vRows.find(r => r.crLabel)?.crLabel ?? rows.find(r => r.crLabel)?.crLabel ?? '';
 
-    const [allDefects, coverage, daily, plans, blockers, risks, qaAssign, cycles, summary, dependents] = await Promise.all([
+    const [allDefects, coverage, daily, plans, blockers, risksFetched, qaAssign, cycles, summary, dependents, qualityScores, releaseCycles] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       this.qcService.getCrCoverage([cr], versionId).catch((): CrCoverageDto[] => []),
       historical ? Promise.resolve(null) : this.getDailyQaManagement(versionId).catch(() => null),
@@ -2773,6 +2849,8 @@ export class ReleaseIntelligenceService {
       }),
       this.qcService.getCrTestSummary(cr, versionId).catch(() => null),
       prisma.crDependency.findMany({ where: { crPlan: { versionId } }, include: { crPlan: { select: { crNumber: true, team: { select: { name: true } } } } } }),
+      this.getCrQualityScores(versionId).catch(() => [] as Awaited<ReturnType<ReleaseIntelligenceService['getCrQualityScores']>>),
+      getReleaseCycleOptions().catch((): ReleaseCycleOption[] => []),
     ]);
 
     // ── defects ──
@@ -2788,8 +2866,10 @@ export class ReleaseIntelligenceService {
     const blocking = testingDefects.filter(d => d.open && (d.severity === 'Show Stopper' || d.severity === 'Severe'))
       .sort((a, b) => (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9) || (a.detectedOn || '').localeCompare(b.detectedOn || ''));
 
-    // ── coverage ──
-    const cov = coverage.map(c => ({
+    // ── coverage — in the order the cycles ran (QC cycle start dates) ──
+    const qcRel = releaseCycles.find(r => (version.qcRelease?.relId != null && r.id === String(version.qcRelease.relId)) || r.name === (version.qcRelease?.relName ?? version.name));
+    const cycleStart = new Map((qcRel?.cycles ?? []).map(c => [c.name.trim().toLowerCase(), c.startDate]));
+    const cov = orderCycles(coverage, n => cycleStart.get(n.trim().toLowerCase()) ?? null).map(c => ({
       cycleName: c.cycleName, passed: c.passed, failed: c.failed, blocked: c.blocked, notRun: c.notRun, notCompleted: c.notCompleted,
       notReady: c.notReady, total: c.total, responsible: c.responsible,
       executedPct: c.total ? Math.round((executedScriptCount(c) / c.total) * 100) : 0,
@@ -2810,6 +2890,52 @@ export class ReleaseIntelligenceService {
       coverage: uatCov, testers: uatTesters, defects: uatDefects,
       window: uatCycle ? { start: uatCycle.plannedStart, end: uatCycle.plannedEnd } : null,
     };
+
+    // ── testers of the CR (user, 2026-10-10): a version DeployCenter manages →
+    // its own QA assignment + the QA schedule's tasks of the CR, with their
+    // cycles; a historical version opened from QC → the CR's REQ in QC
+    // ("Assign To" RQ_USER_05, "SecondaryTester" RQ_USER_27) ──
+    const CYCLE_HE: Record<string, string> = { CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3', STAND_ALONE: 'Stand Alone', UAT: 'UAT', REHEARSAL: 'חזרה גנרלית', GO_LIVE: 'עלייה לאוויר' };
+    const testerCycles = new Map<string, Set<string>>();
+    const addTester = (name: string | null | undefined, cycle?: string) => {
+      const n = (name ?? '').trim(); if (!n) return;
+      if (!testerCycles.has(n)) testerCycles.set(n, new Set());
+      if (cycle) testerCycles.get(n)!.add(CYCLE_HE[cycle] ?? cycle);
+    };
+    const testersFrom: 'deploycenter' | 'qc' = historical ? 'qc' : 'deploycenter';
+    if (historical) {
+      const req = await this.qcService.getCrReqTesters(cr, versionId).catch(() => ({ assignTo: [] as string[], secondary: [] as string[] }));
+      const named = await resolveDefectPersonNames([...req.assignTo.map(l => ({ assignedTo: l, role: 'Assign To' })), ...req.secondary.map(l => ({ assignedTo: l, role: 'בודק משני' }))]);
+      for (const x of named) addTester(x.assignedTo, x.role);
+    } else {
+      for (const a of qaAssign) { addTester(a.user?.fullName); for (const c of a.cycles) addTester(a.user?.fullName, c); }
+      for (const c of cycles) for (const t of c.tasks) addTester(t.user?.fullName, c.cycleType);
+    }
+    const testers = Array.from(testerCycles, ([name, cs]) => ({ name, cycles: Array.from(cs) }));
+
+    // ── development quality score (same as the RI home card) — always shown
+    // (user, 2026-10-10), highlighted when it misses the target or is close to
+    // it; 'na' = no actual effort days to divide by ──
+    const q = qualityScores.find(s => s.crNumber === cr);
+    const qState = crQualityState(q?.score ?? null, CR_QUALITY_TARGET);
+    // a failing score raises its risk automatically (syncCrQualityRisks) — make
+    // sure it exists before this card is shown
+    let risks = risksFetched;
+    if (qState === 'fail' && !historical && (await this.syncCrQualityRisks(versionId, qualityScores).catch(() => false) || !risks.some(r => r.title.startsWith(CR_QUALITY_RISK_TITLE)))) {
+      risks = await prisma.releaseRisk.findMany({ where: { versionId, crNumber: cr }, orderBy: { createdAt: 'desc' } });
+    }
+    const qualityRisk = risks.find(r => r.title.startsWith(CR_QUALITY_RISK_TITLE)) ?? null;
+    const quality = q ? {
+      state: qState ?? 'na' as const, score: q.score == null ? null : Math.round(q.score * 1000) / 1000, target: CR_QUALITY_TARGET,
+      defectCount: q.defectCount, effortDays: q.actualEffortDays,
+      defectIds: allDefects.filter(d => !isProductionEnvironment(d.environment) && isCrQualityDefect(d, cr)).map(d => String(d.id)),
+      // counted, but not code problems (Change Requests, Environment issue, ...)
+      nonCode: q.nonCode,
+      // its automatic risk — "בטיפול" / "סגור" there clears the card's reason
+      risk: qualityRisk ? { id: qualityRisk.id, status: qualityRisk.status, mitigation: qualityRisk.mitigation, owner: qualityRisk.owner } : null,
+    } : null;
+    const qualityHandled = !!qualityRisk && qualityRisk.status !== 'OPEN';
+    const manualRisks = risks.filter(r => r !== qualityRisk);
 
     // ── risks ──
     const dailyCr = (daily?.crs ?? []).find((c: any) => c.crNumber === cr) ?? null;
@@ -2881,9 +3007,10 @@ export class ReleaseIntelligenceService {
       dailyRisk: dailyCr?.risk ?? null,
       testsFinished: finished, hasTests: cov.some(c => c.total > 0), failedTests: cov.reduce((s, c) => s + c.failed, 0),
       plan: planStatus, openBlockers: openBlockers.length,
-      highManualRisks: risks.filter(r => r.status !== 'CLOSED' && (r.severity === 'HIGH' || r.severity === 'CRITICAL')).length,
+      highManualRisks: manualRisks.filter(r => r.status !== 'CLOSED' && (r.severity === 'HIGH' || r.severity === 'CRITICAL')).length,
       uatPlanned: uat.planned, uatDone: uat.done,
       daysToGoLive: daysToGoLive != null && daysToGoLive >= 0 ? daysToGoLive : null,
+      qualityFails: quality?.state === 'fail' && !qualityHandled,
     });
 
     return {
@@ -2897,8 +3024,10 @@ export class ReleaseIntelligenceService {
         daily: dailyCr ? { risk: dailyCr.risk, reasons: dailyCr.reasons, progressPct: dailyCr.progressPct, tester: dailyCr.tester } : null,
         plans: planRisks,
         blockers: blockers.map(b => ({ id: b.id, title: b.title, type: b.type, owner: b.ownerName, status: b.status, createdAt: b.createdAt })),
-        manual: risks.map(r => ({ id: r.id, title: r.title, severity: r.severity, probability: r.probability, impact: r.impact, mitigation: r.mitigation, status: r.status, owner: r.owner })),
+        quality,
+        manual: manualRisks.map(r => ({ id: r.id, title: r.title, severity: r.severity, probability: r.probability, impact: r.impact, mitigation: r.mitigation, status: r.status, owner: r.owner })),
       },
+      testers, testersFrom,
       uat,
       testSummary: { finished, text: summary },
       plan: { status: planStatus, teams: historical ? [] : planTeams },

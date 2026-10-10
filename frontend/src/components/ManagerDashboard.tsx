@@ -114,6 +114,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
   const [openNewVersionForm, setOpenNewVersionForm] = useState(false);
   const [activeModule, setActiveModule] = useState<'home' | 'admin' | 'version-management' | 'deployments' | 'qa' | 'release-intelligence' | 'quality-hub' | 'defects'>('home');
   const [activeVmView, setActiveVmView]  = useState('overview');
+  const [vmCrSearch, setVmCrSearch] = useState<{ q: string; n: number } | null>(null);
   const [activeQaView, setActiveQaView]  = useState('assignment');
   // Deep link into QA → תכנון ושיבוץ's inner tab (QaAssignmentView initialTab)
   const [qaAssignmentTab, setQaAssignmentTab] = useState<{ tab: 'assignments' | 'workplan' | 'activity'; n: number } | undefined>(undefined);
@@ -941,6 +942,7 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               activeView={activeVmView}
               onViewChange={setActiveVmView}
               onRefreshVersions={fetchVersions}
+              crSearchQuery={vmCrSearch}
             />
           )}
 
@@ -1088,6 +1090,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
               canAccessDefects={canAccessDefects}
               onSwitchToQa={() => { setActiveModule('qa'); setActiveQaView('assignment'); }}
               onGoToLeaves={() => { setActiveModule('qa'); setActiveQaView('leaves'); }}
+              // home-page CR search → the real "ניהול גרסה → חיפוש CR" screen, inside the app (2026-10-10)
+              onOpenCrSearch={canAccessVersionManagement ? q => { setVmCrSearch(p => ({ q, n: (p?.n ?? 0) + 1 })); setActiveModule('version-management'); setActiveVmView('cr-search'); } : undefined}
               onSwitchToModule={(m, vmView) => {
                 setActiveModule(m);
                 if (m === 'version-management' && vmView) setActiveVmView(vmView);

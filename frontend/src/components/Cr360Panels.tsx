@@ -39,7 +39,19 @@ export interface Cr360 {
     plans: { team: string; level: string }[];
     blockers: { id: string; title: string; type: string; owner: string | null; status: string; createdAt: string }[];
     manual: { id: string; title: string; severity: string; probability: string | null; impact: string | null; mitigation: string | null; status: string; owner: string | null }[];
+    // development quality score — always; highlighted when it misses the target or is close ('na' = no actual effort days)
+    quality?: {
+      state: 'fail' | 'near' | 'ok' | 'na'; score: number | null; target: number; defectCount: number; effortDays: number | null; defectIds: string[];
+      // counted in the score, but not a code problem (Change Requests, Environment issue, ...)
+      nonCode?: { type: string; count: number }[];
+      // the risk raised automatically when the score misses the target — "בטיפול" / "סגור" clears the CR's reason
+      risk?: { id: string; status: string; mitigation: string | null; owner: string | null } | null;
+    } | null;
   };
+  // testers of the CR: DeployCenter's QA assignment / schedule (with cycles), or — a historical
+  // version DeployCenter never managed — QC REQ "Assign To" / SecondaryTester (with that role)
+  testers?: { name: string; cycles: string[] }[];
+  testersFrom?: 'deploycenter' | 'qc';
   uat?: { planned: boolean; done: boolean; coverage: CovRow[]; testers: string[]; defects: D[]; window: { start: string; end: string } | null };
   testSummary?: { finished: boolean; text: string | null };
   plan?: { status: 'none' | 'complete' | 'partial' | 'not-opened'; teams: PlanTeam[] };
@@ -77,6 +89,11 @@ const PanelTitle: React.FC<{ icon: string; title: string; right?: React.ReactNod
   </div>
 );
 const Empty: React.FC<{ children: React.ReactNode }> = ({ children }) => <div className="text-xs text-subtle-foreground">{children}</div>;
+// counted in the quality score, but not a code problem — said, not excluded (user, 2026-10-10)
+const NonCodeNote: React.FC<{ q: { nonCode?: { type: string; count: number }[] } }> = ({ q }) => {
+  const n = (q.nonCode ?? []).reduce((s, x) => s + x.count, 0);
+  return n ? <div className="mt-0.5 w-full text-xs" style={{ color: C.warning }}>ⓘ מתוכן {n} תקלות מסוג שאינו בעיית קוד ({q.nonCode!.map(x => `${x.type}: ${x.count}`).join(', ')}) — נספרות בציון, וייתכן שהן מנפחות אותו.</div> : null;
+};
 const ids = (ds: D[]) => ds.map(d => d.id);
 const groupBy = (ds: D[], key: (d: D) => string) => {
   const m = new Map<string, D[]>();
@@ -136,6 +153,15 @@ export const Cr360Panels: React.FC<{
             ))}
           </div>
         ) : <div className="mt-1 text-xs text-muted-foreground">אין תקלות חוסמות, הבדיקות הסתיימו ותוכנית ההטמעה הושלמה.</div>}
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t pt-2 text-xs" style={{ borderColor: C.border }}>
+          <span className="font-semibold text-foreground">👤 {data.testersFrom === 'qc' ? 'בודקים (מ-QC):' : 'בודקים משובצים:'}</span>
+          {!data.testers?.length ? <span className="text-subtle-foreground">{data.testersFrom === 'qc' ? 'לא הוגדרו בודקים ל-CR ב-QC' : 'לא שובצו בודקים ל-CR בגרסה הזו'}</span>
+            : data.testers.map(x => (
+              <span key={x.name} className="rounded-full border border-border bg-card px-2 py-0.5 text-foreground">
+                <bdi>{x.name}</bdi>{x.cycles.length > 0 && <span className="text-subtle-foreground"> · {x.cycles.join(', ')}</span>}
+              </span>
+            ))}
+        </div>
       </div>
 
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
@@ -257,12 +283,54 @@ export const Cr360Panels: React.FC<{
             <PanelTitle icon="⚠️" title="סיכונים" />
             {(() => {
               const r = data.risks!;
-              const nothing = !r.daily && !r.plans.length && !r.blockers.length && !r.manual.length;
+              const nothing = !r.daily && !r.plans.length && !r.blockers.length && !r.manual.length && !r.quality;
               if (nothing) return hist ? <NotManaged /> : <Empty>לא זוהו ולא הוזנו סיכונים ל-CR.</Empty>;
               return (
                 <div className="flex flex-col gap-3 text-[13px]">
                   <div>
                     <div className="mb-1 text-xs font-semibold text-subtle-foreground">אוטומטיים</div>
+                    {r.quality && (r.quality.state === 'ok' || r.quality.state === 'na') && (
+                      <div className="mb-2 flex flex-wrap items-center gap-1.5 text-xs">
+                        <span className="text-subtle-foreground">ציון איכות הפיתוח:</span>
+                        {r.quality.state === 'na'
+                          ? <span className="text-subtle-foreground">לא ניתן לחשב — אין ימי פיתוח בפועל</span>
+                          : <>
+                              <span className="font-bold tabular-nums" style={{ color: C.success }} dir="ltr">{r.quality.score}</span>
+                              <span style={{ color: C.success }}>✓ עומד ביעד</span>
+                              <span className="text-subtle-foreground">(היעד: עד {r.quality.target}) ·</span>
+                              <Num ids={r.quality.defectIds} title={`CR ${cr} — התקלות בציון האיכות`} onDrill={onDrill} />
+                              <span className="text-subtle-foreground">תקלות ÷ {r.quality.effortDays != null ? Math.round(r.quality.effortDays * 10) / 10 : '—'} ימי פיתוח</span>
+                            </>}
+                        <NonCodeNote q={r.quality} />
+                      </div>
+                    )}
+                    {r.quality && (r.quality.state === 'fail' || r.quality.state === 'near') && (() => {
+                      const qc = r.quality.state === 'fail' ? C.danger : C.warning;
+                      return (
+                        <div className="mb-2 rounded-md border px-2.5 py-1.5" style={{ borderColor: qc, background: r.quality.state === 'fail' ? C.bgBlocked : C.warningBg }}>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="font-semibold" style={{ color: qc }}>{r.quality.state === 'fail' ? '⛔ ציון איכות הפיתוח לא עומד ביעד' : '⚠ ציון איכות הפיתוח קרוב לחריגה מהיעד'}</span>
+                            <span className="tabular-nums font-bold" style={{ color: qc }} dir="ltr">{r.quality.score}</span>
+                            <span className="text-xs text-subtle-foreground">(היעד: עד {r.quality.target})</span>
+                          </div>
+                          <div className="mt-0.5 text-xs text-subtle-foreground">
+                            <Num ids={r.quality.defectIds} title={`CR ${cr} — התקלות בציון האיכות`} onDrill={onDrill} /> תקלות (משוקלל לפי חומרה) ÷ {r.quality.effortDays != null ? Math.round(r.quality.effortDays * 10) / 10 : '—'} ימי פיתוח בפועל
+                          </div>
+                          <NonCodeNote q={r.quality} />
+                          {r.quality.risk && (
+                            <div className="mt-1.5 border-t pt-1.5 text-xs" style={{ borderColor: C.border }}>
+                              <span className="font-semibold text-foreground">סיכון נפתח אוטומטית בניהול סיכונים: </span>
+                              <span className="font-semibold" style={{ color: r.quality.risk.status === 'OPEN' ? C.danger : C.success }}>
+                                {r.quality.risk.status === 'OPEN' ? 'פתוח — ממתין למיטיגציה' : r.quality.risk.status === 'MITIGATED' ? '✓ בטיפול' : '✓ סגור'}
+                              </span>
+                              {r.quality.risk.owner && <span className="text-subtle-foreground"> · אחראי: {r.quality.risk.owner}</span>}
+                              {r.quality.risk.status === 'OPEN' && <div className="mt-0.5 text-subtle-foreground">כשהסיכון יעבור ל"בטיפול" או "סגור" (עם המיטיגציה שבוצעה), ה-CR לא ייחשב יותר כלא מוכן בגללו.</div>}
+                              {r.quality.risk.mitigation && <div className="mt-1 whitespace-pre-wrap text-subtle-foreground" dir="auto">{r.quality.risk.mitigation}</div>}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
                     {r.daily ? (
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span>ניהול QA היומי:</span>

@@ -15,6 +15,8 @@ interface Props {
   activeView: string; // 'overview' | 'manage' | 'validate' | 'changes' | 'open' | 'approve'
   onViewChange: (v: string) => void;
   onRefreshVersions: () => void;
+  // a CR search started from the home page (n changes on every search, so the same query searches again)
+  crSearchQuery?: { q: string; n: number } | null;
 }
 
 const OPEN_STATUSES = ['DRAFT', 'COLLECTING', 'CR_REVIEW', 'REFINING', 'REVIEW', 'APPROVED'];
@@ -33,7 +35,7 @@ const VIEW_TO_STEP: Record<string, StepKey> = {
 // deployments module (VersionsView's "יצירת תוכנית הטמעה") now only fills in
 // dates/phases/tasks for a version already created here.
 export const VersionManagementModuleView: React.FC<Props> = ({
-  token, versions, selectedVersionId, onSelectVersion, activeView, onViewChange, onRefreshVersions,
+  token, versions, selectedVersionId, onSelectVersion, activeView, onViewChange, onRefreshVersions, crSearchQuery,
 }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const openVersions = versions.filter(v => !v.isArchived && OPEN_STATUSES.includes(v.status));
@@ -111,7 +113,7 @@ export const VersionManagementModuleView: React.FC<Props> = ({
 
       {activeView === 'cr-search' ? (
         // not version-scoped — searches the whole CR_LIST
-        <CrSearchView token={token} versions={versions} />
+        <CrSearchView key={crSearchQuery ? `${crSearchQuery.q}|${crSearchQuery.n}` : ""} token={token} versions={versions} initialQuery={crSearchQuery?.q} />
       ) : !selectedVersion ? (
         <div className="p-10 text-center text-subtle-foreground">
           {openVersions.length === 0 ? 'אין גרסאות פתוחות — לחץ "+ יצירת גרסה" למעלה כדי להתחיל.' : 'בחר גרסה בבורר הגרסאות בתפריט הצד.'}

@@ -117,6 +117,8 @@ interface CrQualityRow {
   // entirely, hiding real target-breaching CRs that just hadn't had their
   // effort filled in).
   actualEffortDays: number | null; score: number | null; meetsTarget: boolean | null;
+  // counted in the score but not a code problem (Change Requests, Environment issue, ...) — said, not excluded (2026-10-10)
+  nonCode?: { type: string; count: number }[];
 }
 
 // score = Σ(defectCount × severityWeight) / actualEffortDays; a CR "meets the
@@ -963,7 +965,7 @@ export const ReleaseIntelligenceHomeView: React.FC<Props> = ({ token, versionId,
             icon="🎯" urgent module="release-intelligence"
             title={`${failingCrs.length} CR-ים לא עומדים ביעד איכות הפיתוח`}
             desc="כמות תקלות גבוהה יחסית להיקף הפיתוח — נדרשת רגרסיה מלאה ל-CR"
-            detail={failingCrs.map(r => `${r.crNumber}${r.crLabel ? ' — ' + r.crLabel : ''} (ציון: ${(r.score as number).toFixed(2)})`)}
+            detail={failingCrs.map(r => `${r.crNumber}${r.crLabel ? ' — ' + r.crLabel : ''} (ציון: ${(r.score as number).toFixed(2)})${(r.nonCode ?? []).length ? ` · מתוכן ${r.nonCode!.reduce((n, x) => n + x.count, 0)} תקלות שאינן בעיית קוד (${r.nonCode!.map(x => x.type).join(', ')})` : ''}`)}
             expanded={crQualityExpanded}
             onToggle={() => setCrQualityExpanded(v => !v)}
           />

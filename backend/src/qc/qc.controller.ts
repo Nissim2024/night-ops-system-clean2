@@ -47,6 +47,15 @@ export class QcController {
     if (!allowed) throw new ForbiddenException(msg);
   }
 
+  // the defect forms' option lists serve both the edit form and the create
+  // form — whoever may do either gets them (2026-10-10: a tester with only
+  // "open a defect" got empty release / Environment Component lists)
+  private async requireDefectFormAccess(req: any) {
+    if (await this.permissionsService.userHas(req.user, 'action:qc_defect_edit_extended')) return;
+    if (await this.permissionsService.userHas(req.user, 'action:qc_defect_create')) return;
+    throw new ForbiddenException('אין לך הרשאה לפתוח או לערוך תקלות ב-QC — פנה למנהל מערכת');
+  }
+
   @Get('status')
   getStatus() {
     return this.qcService.getStatus();
@@ -318,7 +327,7 @@ export class QcController {
 
   @Get('defect-field-picklists')
   async getDefectFieldPicklists(@Request() req: any) {
-    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    await this.requireDefectFormAccess(req);
     const lists = await this.qcRestService.getDefectFieldPicklists();
     const { enabled } = await getOracleConfig();
     if (!enabled) {
@@ -567,7 +576,7 @@ export class QcController {
 
   @Get('defect-editable-fields')
   async getDefectEditableFields(@Request() req: any) {
-    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    await this.requireDefectFormAccess(req);
     return this.qcRestService.getEditableDefectFieldKeys(req.user?.role);
   }
 
@@ -592,14 +601,14 @@ export class QcController {
   // Release -> its cycles, for the paired release/cycle pickers (2026-10-08)
   @Get('release-cycle-options')
   async getReleaseCycleOptions(@Request() req: any) {
-    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    await this.requireDefectFormAccess(req);
     return getReleaseCycleOptions();
   }
 
   // Team -> its Environment Components, for the paired Responsibility / Environment Component pickers
   @Get('team-environment-components')
   async getTeamEnvironmentComponents(@Request() req: any) {
-    await this.requirePermission(req, 'action:qc_defect_edit_extended', 'אין לך הרשאה לערוך שדות תקלה מורחבים — פנה למנהל מערכת');
+    await this.requireDefectFormAccess(req);
     return getTeamEnvironmentComponents();
   }
 

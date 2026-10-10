@@ -1,4 +1,4 @@
-import { testsFinished, planStateOf, planOverall, crTrafficLight } from './cr-360';
+import { testsFinished, planStateOf, planOverall, crTrafficLight, orderCycles, crQualityState } from './cr-360';
 
 // CR card rules (user decisions 2026-10-10)
 describe('CR card', () => {
@@ -39,5 +39,25 @@ describe('CR card', () => {
     const r = crTrafficLight({ ...ok, openSevere: 2, uatDone: false });
     expect(r.light).toBe('amber');
     expect(r.reasons.map(x => x.text)).toEqual(['2 תקלות Severe פתוחות', 'בדיקות המשתמשים (UAT) טרם הושלמו']);
+  });
+});
+
+describe('CR card — cycle order & quality score', () => {
+  const c = (cycleName: string) => ({ cycleName });
+  it('orders coverage cycles by their QC start date', () => {
+    const dates: Record<string, string> = { 'Cycle 1': '2026-03-01', 'Cycle 2': '2026-03-15', 'Go Live': '2026-04-20', 'Cycle 0': '2026-02-20', UAT: '2026-04-01' };
+    const out = orderCycles([c('Go Live'), c('Cycle 1'), c('Cycle 0'), c('UAT'), c('Cycle 2')], n => dates[n] ?? null);
+    expect(out.map(x => x.cycleName)).toEqual(['Cycle 0', 'Cycle 1', 'Cycle 2', 'UAT', 'Go Live']);
+  });
+  it('without dates falls back to the usual cycle sequence', () => {
+    const out = orderCycles([c('Go Live'), c('Dress Rehearsal'), c('UAT'), c('Cycle 2'), c('Cycle 0'), c('Cycle 1')], () => null);
+    expect(out.map(x => x.cycleName)).toEqual(['Cycle 0', 'Cycle 1', 'Cycle 2', 'UAT', 'Dress Rehearsal', 'Go Live']);
+  });
+  it('quality score: fails above target, "near" from 80% of it', () => {
+    expect(crQualityState(0.2, 0.15)).toBe('fail');
+    expect(crQualityState(0.13, 0.15)).toBe('near');
+    expect(crQualityState(0.15, 0.15)).toBe('near');
+    expect(crQualityState(0.05, 0.15)).toBe('ok');
+    expect(crQualityState(null, 0.15)).toBeNull();
   });
 });

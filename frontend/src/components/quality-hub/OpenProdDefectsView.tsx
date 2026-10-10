@@ -599,12 +599,29 @@ const REF_PAIR_OF: Record<string, [string, string]> = {
 
 // Team (Responsibility) ↔ Environment Component: the team's own components,
 // or every value when the team has none defined (user, 2026-10-08).
-export type TeamEnvComponents = { teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[] };
-function teamComponentsFor(data: TeamEnvComponents | null, team: string): string[] {
-  const t = team.trim().toLowerCase();
-  if (!data || !t) return [];
-  const hit = data.teams.find(x => (x.responsibility ?? '').toLowerCase() === t) ?? data.teams.find(x => x.name.toLowerCase() === t);
-  return hit?.components ?? [];
+// history: per Responsibility value (lower-case), the Environment Components its
+// defects really used in QC, most used first
+export type TeamEnvComponents = { teams: { name: string; responsibility: string | null; components: string[] }[]; all: string[]; history?: Record<string, string[]> };
+// "CRM Dev Team" ~ "CRM Team" ~ "crm-team"
+const normTeam = (s: string) => s.toLowerCase().replace(/\b(dev|team)\b/g, '').replace(/צוות/g, '').replace(/[-_\s]+/g, '');
+// The systems of the team(s) in Responsibility (user, 2026-10-10): each team
+// ("A;B" = several) → the systems set for it in DeployCenter (matched by its QC
+// Responsibility link, its name, or a loose name) first, then the values its
+// defects really used in QC (their exact QC spelling, e.g. ZOO-CMDB). [] → the
+// form offers the full list.
+export function teamComponentsFor(data: TeamEnvComponents | null, responsibility: string): string[] {
+  if (!data) return [];
+  const out: string[] = [];
+  for (const raw of responsibility.split(';').map(s => s.trim()).filter(Boolean)) {
+    const t = raw.toLowerCase();
+    const hit = [
+      data.teams.find(x => (x.responsibility ?? '').toLowerCase() === t),
+      data.teams.find(x => x.name.toLowerCase() === t),
+      data.teams.find(x => normTeam(x.name) === normTeam(raw) || (!!x.responsibility && normTeam(x.responsibility) === normTeam(raw))),
+    ].find(x => x && x.components.length > 0);
+    for (const c of [...(hit?.components ?? []), ...(data.history?.[t] ?? [])]) if (!out.includes(c)) out.push(c);
+  }
+  return out;
 }
 
 

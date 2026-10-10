@@ -55,12 +55,38 @@ export function planOverall(teams: { state: Cr360PlanTeam['state'] }[]): 'none' 
   return 'partial';
 }
 
+// Coverage cycles in the order they ran (user, 2026-10-10): by the QC cycle's
+// start date; a cycle without a date falls back to the usual cycle sequence,
+// then its name.
+const CYCLE_SEQ: [RegExp, number][] = [
+  [/cycle\s*0|integration/i, 0], [/cycle\s*1/i, 1], [/cycle\s*2/i, 2], [/cycle\s*3/i, 3],
+  [/stand\s*alone/i, 4], [/uat/i, 5], [/rehearsal/i, 6], [/go\s*live/i, 7],
+];
+const cycleSeq = (name: string) => CYCLE_SEQ.find(([re]) => re.test(name))?.[1] ?? 50;
+export function orderCycles<T extends { cycleName: string }>(cycles: T[], startOf: (name: string) => string | null): T[] {
+  return [...cycles].sort((a, b) => {
+    const sa = startOf(a.cycleName), sb = startOf(b.cycleName);
+    if (sa && sb && sa !== sb) return sa.localeCompare(sb);
+    return cycleSeq(a.cycleName) - cycleSeq(b.cycleName) || a.cycleName.localeCompare(b.cycleName);
+  });
+}
+
+// CR development quality (the RI home "CR-ים לא עומדים ביעד איכות" score):
+// shown in the CR card's risks — highlighted when it misses the target or is within 20% of it.
+export const CR_QUALITY_NEAR_RATIO = 0.8;
+export function crQualityState(score: number | null, target: number): 'fail' | 'near' | 'ok' | null {
+  if (score == null) return null;
+  if (score > target) return 'fail';
+  return score >= target * CR_QUALITY_NEAR_RATIO ? 'near' : 'ok';
+}
+
 // Overall status of the CR, with every reason that decided it
 export function crTrafficLight(s: {
   openShowStopper: number; openSevere: number; dailyRisk: string | null;
   testsFinished: boolean; hasTests: boolean; failedTests: number;
   plan: ReturnType<typeof planOverall>; openBlockers: number; highManualRisks: number;
   uatPlanned: boolean; uatDone: boolean; daysToGoLive: number | null;
+  qualityFails?: boolean;
 }): { light: Light; reasons: { key: string; light: Light; text: string }[] } {
   // key = what the card opens when the reason is clicked
   const reasons: { key: string; light: Light; text: string }[] = [];
@@ -75,6 +101,7 @@ export function crTrafficLight(s: {
   if (s.openSevere) reasons.push({ key: 'severe', light: 'amber', text: `${s.openSevere} תקלות Severe פתוחות` });
   if (s.failedTests) reasons.push({ key: 'tests', light: 'amber', text: `${s.failedTests} בדיקות נכשלו` });
   if (s.openBlockers) reasons.push({ key: 'risks', light: 'amber', text: `${s.openBlockers} חסמים פתוחים` });
+  if (s.qualityFails) reasons.push({ key: 'risks', light: 'amber', text: 'ציון איכות הפיתוח לא עומד ביעד' });
   if (s.highManualRisks) reasons.push({ key: 'risks', light: 'amber', text: `${s.highManualRisks} סיכונים בחומרה גבוהה פתוחים` });
   if (s.dailyRisk === 'MEDIUM') reasons.push({ key: 'daily', light: 'amber', text: 'סיכון בינוני בניהול QA היומי' });
   if (s.uatPlanned && !s.uatDone) reasons.push({ key: 'uat', light: 'amber', text: 'בדיקות המשתמשים (UAT) טרם הושלמו' });

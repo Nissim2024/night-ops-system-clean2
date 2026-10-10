@@ -159,6 +159,8 @@ interface Props {
   canAccessDefects?: boolean;
   onSwitchToModule?: (m: ModuleKey, vmView?: string) => void;
   onGoToLeaves?: () => void;
+  // open "ניהול גרסה → חיפוש CR" with this query (only when the user can open that module)
+  onOpenCrSearch?: (query: string) => void;
 }
 
 const STATUS_PRIORITY: Record<string, number> = {
@@ -435,7 +437,7 @@ const CR_REVIEW_STAGES = ['CR_REVIEW', 'REFINING', 'REVIEW'];
 
 export const HomeDashboard: React.FC<Props> = ({
   versions, role, fullName, token, selectedVersionId, onSelectVersion, onNewVersion, onSwitchToQa, canAccessQa,
-  isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, canAccessDefects, onSwitchToModule, onGoToLeaves,
+  isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, canAccessDefects, onSwitchToModule, onGoToLeaves, onOpenCrSearch,
 }) => {
   const dialog = useDialog();
   // CR search from the home page too (user, 2026-10-10) — opens the full CR card
@@ -1227,7 +1229,13 @@ export const HomeDashboard: React.FC<Props> = ({
           </div>
         </div>
         <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <form onSubmit={e => { e.preventDefault(); if (crQuery.trim().length >= 2) setCrSearchOpen(crQuery.trim()); }}
+          <form onSubmit={e => {
+            e.preventDefault();
+            const q = crQuery.trim();
+            if (q.length < 2) return;
+            // the real "ניהול גרסה → חיפוש CR" screen when the user has it; else in the home page
+            if (onOpenCrSearch) onOpenCrSearch(q); else setCrSearchOpen(q);
+          }}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', border: `1px solid ${C.border}`, borderRadius: RADIUS.full, padding: '3px 4px 3px 12px', background: C.bgNested }}>
             <span style={{ fontSize: '13px' }}>🔎</span>
             <input value={crQuery} onChange={e => setCrQuery(e.target.value)} placeholder="חיפוש CR — מספר או טקסט"
@@ -1252,10 +1260,21 @@ export const HomeDashboard: React.FC<Props> = ({
       </div>
 
       {/* ── No versions at all ── */}
-      {!primary && !allDone && <EmptyState canCreate={canCreate} onNewVersion={onNewVersion} />}
+      {/* ── CR search (users without version management) — inside the home
+           page, under its top bar, full width (user, 2026-10-10: the old
+           full-screen overlay looked like a page outside the system) ── */}
+      {crSearchOpen && (
+        <div style={{ padding: '16px 28px' }}>
+          <button onClick={() => setCrSearchOpen(null)}
+            style={{ border: 'none', background: 'transparent', color: C.brand, cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: '12px', padding: 0 }}>→ חזרה לדף הבית</button>
+          <CrSearchView key={crSearchOpen} token={token} versions={versions} initialQuery={crSearchOpen} />
+        </div>
+      )}
+
+      {!crSearchOpen && !primary && !allDone && <EmptyState canCreate={canCreate} onNewVersion={onNewVersion} />}
 
       {/* ── All versions completed — show compact notice + history ── */}
-      {allDone && !primary && (
+      {!crSearchOpen && allDone && !primary && (
         <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
           {/* Notice bar */}
           <div style={{ background: C.bgCard, border: `1px solid ${C.border}`, borderRadius: RADIUS.lg, padding: '16px 20px', display: 'flex', alignItems: 'center', gap: '14px' }}>
@@ -1296,7 +1315,7 @@ export const HomeDashboard: React.FC<Props> = ({
         </div>
       )}
 
-      {primary && (
+      {!crSearchOpen && primary && (
         <div style={{ padding: '20px 28px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
           {/* ── Hero banner ── */}
@@ -1938,16 +1957,6 @@ export const HomeDashboard: React.FC<Props> = ({
           startInRunMode
           onClose={() => setRunbookItem(null)}
         />
-      )}
-
-      {crSearchOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, overflow: 'auto', direction: 'rtl' }}>
-          <div style={{ maxWidth: '1500px', margin: '0 auto', padding: '20px 28px' }}>
-            <button onClick={() => setCrSearchOpen(null)}
-              style={{ border: 'none', background: 'transparent', color: C.brand, cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: '12px', padding: 0 }}>→ חזרה לדף הבית</button>
-            <CrSearchView token={token} versions={versions} initialQuery={crSearchOpen} />
-          </div>
-        </div>
       )}
 
       {homeDefectDetailId && (
