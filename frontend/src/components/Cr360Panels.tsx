@@ -66,7 +66,7 @@ const PHASE_HE: Record<number, string> = { 1: 'בוקר לפני הגרסה', 2:
 const Num: React.FC<{ ids: string[]; title: string; onDrill: (t: string, ids: string[]) => void; color?: string; strong?: boolean }> = ({ ids, title, onDrill, color, strong }) => (
   ids.length === 0
     ? <span className="tabular-nums text-subtle-foreground">0</span>
-    : <button onClick={() => onDrill(title, ids)} title="הצג את התקלות"
+    : <button onClick={() => onDrill(title, ids)} title="הצג את התקלות" aria-label={title}
         className={`cursor-pointer border-none bg-transparent p-0 tabular-nums underline-offset-2 hover:underline ${strong ? 'font-bold' : 'font-semibold'}`}
         style={{ color: color ?? C.brand }}>{ids.length}</button>
 );

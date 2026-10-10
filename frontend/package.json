@@ -71,5 +71,10 @@
     "cross-env": "^10.1.0",
     "postcss": "^8.5.28",
     "tailwindcss": "^3.4.19"
+  },
+  "jest": {
+    "moduleNameMapper": {
+      "^@radix-ui/primitive/is-development$": "<rootDir>/node_modules/@radix-ui/primitive/dist/internal/is-development.false.js"
+    }
   }
 }

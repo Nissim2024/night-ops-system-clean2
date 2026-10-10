@@ -1,7 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import axios from 'axios';
-const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
-const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 import { C } from '../../theme';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { useDialog } from '../../context/DialogContext';
@@ -9,6 +7,8 @@ import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
+const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
+const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 

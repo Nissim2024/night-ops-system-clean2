@@ -176,6 +176,8 @@ async function bootstrap() {
   await validateStartup();
 
   const app = await NestFactory.create(AppModule);
+  // behind the frontend's nginx (one hop): req.ip = the user's real address, not nginx's
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
   app.use(helmet());
   // Every request runs as its login's QC project (JWT claim `qcProject`) —

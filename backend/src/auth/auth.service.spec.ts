@@ -7,7 +7,10 @@ describe('AuthService', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [AuthService],
-    }).compile();
+    })
+      // dependencies (Prisma-backed services, JwtService, the gateway…) are stand-ins — these only check wiring
+      .useMocker(() => ({}))
+      .compile();
 
     service = module.get<AuthService>(AuthService);
   });

@@ -7,7 +7,10 @@ describe('TasksController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [TasksController],
-    }).compile();
+    })
+      // dependencies (Prisma-backed services, JwtService, the gateway…) are stand-ins — these only check wiring
+      .useMocker(() => ({}))
+      .compile();
 
     controller = module.get<TasksController>(TasksController);
   });

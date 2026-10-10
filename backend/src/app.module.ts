@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { UserThrottlerGuard } from './user-throttler.guard';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -43,8 +45,10 @@ import { AiModule } from './ai/ai.controller';
       isGlobal: true,
       envFilePath: `.env.${process.env.NODE_ENV || 'dev'}`,
     }),
-    // Global rate limiting: max 100 requests per minute per IP
-    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
+    // Abuse guard: 600 requests / minute per signed-in USER (not per IP — all
+    // traffic comes through nginx, users may share an address). Login has its
+    // own 10 / 15 min per IP + e-mail (auth.controller). See UserThrottlerGuard.
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 600 }]),
     ScheduleModule.forRoot(),
     PushModule,
     AuthModule, UsersModule, TasksModule, TeamsModule, VersionsModule,
@@ -62,6 +66,8 @@ import { AiModule } from './ai/ai.controller';
     SuggestedRisksModule,
   ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    // the throttler's guard was never registered — nothing was limited (regression 2026-10-10)
+    { provide: APP_GUARD, useClass: UserThrottlerGuard },AppService],
 })
 export class AppModule {}

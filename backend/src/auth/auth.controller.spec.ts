@@ -7,7 +7,10 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-    }).compile();
+    })
+      // dependencies (Prisma-backed services, JwtService, the gateway…) are stand-ins — these only check wiring
+      .useMocker(() => ({}))
+      .compile();
 
     controller = module.get<AuthController>(AuthController);
   });

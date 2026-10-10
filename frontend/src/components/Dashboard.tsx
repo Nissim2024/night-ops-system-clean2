@@ -1,3 +1,5 @@
+import { usePushNotifications } from '../hooks/usePushNotifications';
+import { useSocket } from '../hooks/useSocket';
 ﻿import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { VersionsView } from './VersionsView';
@@ -51,8 +53,6 @@ const SummaryVersionPicker: React.FC<{ token: string }> = ({ token }) => {
     </div>
   );
 };
-import { useSocket } from '../hooks/useSocket';
-import { usePushNotifications } from '../hooks/usePushNotifications';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 

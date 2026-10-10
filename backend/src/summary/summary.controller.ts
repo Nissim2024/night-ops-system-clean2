@@ -146,7 +146,9 @@ export class SummaryController {
   }
 
   @Get('email/config')
-  async getEmailConfig() {
+  async getEmailConfig(@Request() req: any) {
+    // sender + distribution list — managers only (regression 2026-10-10: a VIEWER could read it)
+    requireRole(req, ['ADMIN', 'RELEASE_MANAGER']);
     return this.emailService.getConfig();
   }
 

@@ -2612,7 +2612,10 @@ async function oracleConnect(): Promise<any> {
     oraclePoolKey = key;
     oraclePool = oracledb.createPool({
       user: cfg.user, password: cfg.password, connectString: cfg.connectString,
-      poolMin: 1, poolMax: 8, poolIncrement: 1, poolTimeout: 300, queueTimeout: 120000, stmtCacheSize: 40,
+      // ~150 concurrent users (2026-10-10): 8 sessions left no headroom for
+      // parallel defect cards + scans; QC_ORACLE_POOL_MAX overrides (DBA limits)
+      poolMin: 2, poolMax: Math.max(4, Number(process.env.QC_ORACLE_POOL_MAX) || 20), poolIncrement: 2,
+      poolTimeout: 300, queueTimeout: 60000, stmtCacheSize: 40,
     });
     oraclePool!.catch(() => { oraclePool = null; oraclePoolKey = ''; });
     if (old) old.then((p: any) => p.close(30)).catch(() => {});

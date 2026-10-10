@@ -224,7 +224,10 @@ export class QcController {
   }
 
   @Get('defect-form-layouts')
-  getDefectFormLayouts() {
+  getDefectFormLayouts(@Request() req: any) {
+    // every scope's layout — the admin editor's data (each user reads only
+    // their own resolved layout via defect-form-layout); regression 2026-10-10
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לערוך תבניות טופס תקלה');
     return this.qcService.getDefectFormLayouts();
   }
 
@@ -692,6 +695,8 @@ export class QcController {
   ) {
     await this.requirePermission(req, 'action:qc_attachment_upload', 'אין לך הרשאה לצרף קבצים לתקלה — פנה למנהל מערכת');
     if (!file) throw new BadRequestException('לא התקבל קובץ');
-    return this.qcRestService.uploadAttachment(id, file.originalname, file.buffer, file.mimetype, req.user.sub);
+    // the defect's cached file list is dropped once the upload lands too
+    return this.qcRestService.uploadAttachment(id, file.originalname, file.buffer, file.mimetype, req.user.sub)
+      .finally(() => this.qcRestService.forgetAttachments(id));
   }
 }

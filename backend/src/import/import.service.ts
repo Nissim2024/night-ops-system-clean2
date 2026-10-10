@@ -473,6 +473,9 @@ export class ImportService {
       resolvedTeamId = teamIdOverride;
     } else {
       const membership = await prisma.teamMember.findFirst({ where: { userId }, select: { teamId: true } });
+      // a manager with no team of their own and no team picked has nothing to
+      // sync — not an error (regression 2026-10-10: a 400 on every visit)
+      if (!membership && MANAGERS.includes(userRole)) return [];
       if (!membership) throw new BadRequestException('המשתמש אינו משויך לאף צוות');
       resolvedTeamId = membership.teamId;
     }

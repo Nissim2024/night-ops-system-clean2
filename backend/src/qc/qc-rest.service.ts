@@ -6,7 +6,7 @@ import { CycleType } from '../qa/qa.scheduler';
 import { getQcPersonDirectory, getReleaseCycleOptions, getDefectLock } from './qc.service';
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
-import { currentQcProject, projectParamKey, assertQcProjectWritable } from './qc-project-context';
+import { currentQcProject, projectParamKey, assertQcProjectWritable, projectCacheKey } from './qc-project-context';
 import { prisma } from '../prisma-client';
 
 
@@ -357,7 +357,32 @@ export class QcRestService {
   // collection, not by a numeric ID) — if this instance's real API differs,
   // the fix is localized to entityUrl()+attachments and parseAttachmentsXml
   // below, same pattern as REST_FIELD was for field names.
+  // Every defect card lists its files, and every listing is a full QC REST
+  // login → site-session → GET → logout. With ~150 people on the defects
+  // module that's the heaviest load DeployCenter puts on QC (2026-10-10), so
+  // a defect's list is kept 2 minutes and identical requests in flight share
+  // one QC call. Upload / delete from here drops it at once.
+  private static attachmentsCache = new Map<string, { at: number; list: AttachmentMeta[] }>();
+  private static attachmentsInFlight = new Map<string, Promise<AttachmentMeta[]>>();
+  private static readonly ATTACHMENTS_TTL_MS = 2 * 60 * 1000;
+  private attachmentsKey(defectId: string) { return projectCacheKey(`attachments:${defectId}`); }
+  forgetAttachments(defectId: string) { QcRestService.attachmentsCache.delete(this.attachmentsKey(defectId)); }
+
   async listAttachments(defectId: string, userId: string): Promise<AttachmentMeta[]> {
+    const key = this.attachmentsKey(defectId);
+    const hit = QcRestService.attachmentsCache.get(key);
+    if (hit && Date.now() - hit.at < QcRestService.ATTACHMENTS_TTL_MS) return hit.list;
+    let flight = QcRestService.attachmentsInFlight.get(key);
+    if (!flight) {
+      flight = this.listAttachmentsFromQc(defectId, userId)
+        .then(list => { QcRestService.attachmentsCache.set(key, { at: Date.now(), list }); return list; })
+        .finally(() => QcRestService.attachmentsInFlight.delete(key));
+      QcRestService.attachmentsInFlight.set(key, flight);
+    }
+    return flight;
+  }
+
+  private async listAttachmentsFromQc(defectId: string, userId: string): Promise<AttachmentMeta[]> {
     const config = await this.getConfig();
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);
@@ -407,6 +432,7 @@ export class QcRestService {
   // instruction, not blocked on a diagnostic first. If this instance's real
   // API differs, the fix is localized to this one method.
   async uploadAttachment(defectId: string, fileName: string, fileBuffer: Buffer, contentType: string, userId: string): Promise<{ ok: true }> {
+    this.forgetAttachments(defectId);
     const config = await this.getConfig();
     const qcLogin = await this.resolveQcLogin(userId);
     const cookie = await this.loginAsUser(config, qcLogin);

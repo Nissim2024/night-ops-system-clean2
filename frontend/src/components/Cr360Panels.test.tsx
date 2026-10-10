@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { Cr360Panels, Cr360 } from './Cr360Panels';
 
 // the shared UI kit pulls Radix, which this Jest setup can't load — plain stand-ins
@@ -42,17 +42,16 @@ describe('Cr360Panels', () => {
   it('drills into the defects behind each number', () => {
     const onDrill = jest.fn();
     render(<Cr360Panels data={base} onDrill={onDrill} onOpenCr={() => {}} />);
-    // the "סה"כ" row: all 4 defects / 2 open
-    const total = screen.getByText('סה"כ').closest('tr')!;
-    fireEvent.click(within(total).getByText('4'));
+    // the total row: all 4 defects / 2 open (each count is labelled with what it opens)
+    fireEvent.click(screen.getByLabelText('CR 13085 — כל התקלות'));
     expect(onDrill).toHaveBeenLastCalledWith('CR 13085 — כל התקלות', ['1', '2', '3', '4']);
-    fireEvent.click(within(total).getByText('2'));
+    fireEvent.click(screen.getByLabelText('CR 13085 — תקלות פתוחות'));
     expect(onDrill).toHaveBeenLastCalledWith('CR 13085 — תקלות פתוחות', ['1', '3']);
     // a traffic-light reason opens its defects
     fireEvent.click(screen.getByText('1 תקלות Show Stopper פתוחות'));
     expect(onDrill).toHaveBeenLastCalledWith('CR 13085 — Show Stopper פתוחות', ['1']);
     // the dependency's open defects
-    fireEvent.click(screen.getByTitle('פתח את כרטיס ה-CR').closest('div')!.querySelector('button[title="הצג את התקלות"]')!);
+    fireEvent.click(screen.getByLabelText('CR 13001 — תקלות פתוחות'));
     expect(onDrill).toHaveBeenLastCalledWith('CR 13001 — תקלות פתוחות', ['77', '78']);
   });
 

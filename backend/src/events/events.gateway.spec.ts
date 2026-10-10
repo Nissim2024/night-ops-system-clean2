@@ -7,7 +7,10 @@ describe('EventsGateway', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [EventsGateway],
-    }).compile();
+    })
+      // dependencies (Prisma-backed services, JwtService, the gateway…) are stand-ins — these only check wiring
+      .useMocker(() => ({}))
+      .compile();
 
     gateway = module.get<EventsGateway>(EventsGateway);
   });

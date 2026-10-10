@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import pkg from '../../package.json';
-const APP_VERSION: string = pkg.version;
 import { TeamView } from './TeamView';
 import { VersionProgressChain } from './VersionProgressChain';
 import { useSocket } from '../hooks/useSocket';
@@ -17,6 +16,7 @@ import { MyQaTasksView, MyQaTask, TargetDefectGroup } from './qa/MyQaTasksView';
 import { FocusModeModal } from './FocusModeModal';
 import { RUNBOOKS } from './qa/RunbookModal';
 import { IS_TEST } from '../runtimeEnv';
+const APP_VERSION: string = pkg.version;
 
 // Same order used by VersionProgressChain — picks the most-advanced planning
 // version when several exist, instead of whichever happens to come first in the API response.
