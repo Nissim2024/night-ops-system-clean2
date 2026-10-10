@@ -599,6 +599,7 @@ model CrPlan {
   crManagerNote       String?
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
+  updatedByName       String? // who saved it last — named in the "updated meanwhile" warning (2026-10-10)
 
   version          Version                 @relation(fields: [versionId], references: [id])
   team             Team                    @relation(fields: [teamId], references: [id])
@@ -929,6 +930,7 @@ model QaAssignment {
   standAloneDueDate         DateTime? // optional early deadline for a Stand Alone CR — pulls it ahead of other SA work for this tester
   createdAt                 DateTime  @default(now())
   updatedAt                 DateTime  @updatedAt
+  updatedByName             String? // who saved it last — named in the "updated meanwhile" warning (2026-10-10)
   // Real QC `requirement` id once this CR is published to QC as a
   // Requirement (docs/spec-qc-full-integration.md §4, stage 2) — null until
   // published. Requires the version's Release+Cycles to already exist in QC
@@ -960,6 +962,7 @@ model QaWorkPlan {
   approvedAt       DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
+  updatedByName    String? // who saved it last — named in the "updated meanwhile" warning (2026-10-10)
 
   version    Version               @relation(fields: [versionId], references: [id], onDelete: Cascade)
   cycles     QaCycle[]
@@ -1009,6 +1012,7 @@ model QaCycle {
   qgEnvironment     String?
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  updatedByName     String? // who saved it last — named in the "updated meanwhile" warning (2026-10-10)
 
   workPlan QaWorkPlan    @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
   tasks    QaCycleTask[]
@@ -1105,20 +1109,21 @@ model RunbookTemplate {
 // historical logs.
 
 model ReleaseRisk {
-  id          String     @id @default(uuid())
-  versionId   String
-  title       String
-  description String?
-  severity    Priority   @default(MEDIUM)
-  impact      String?
-  probability String?
-  owner       String?
-  mitigation  String?
-  status      RiskStatus @default(OPEN)
-  crNumber    String? // the CR this risk is about (optional) — shown on the CR card (2026-10-10)
-  createdBy   String
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  id            String     @id @default(uuid())
+  versionId     String
+  title         String
+  description   String?
+  severity      Priority   @default(MEDIUM)
+  impact        String?
+  probability   String?
+  owner         String?
+  mitigation    String?
+  status        RiskStatus @default(OPEN)
+  crNumber      String? // the CR this risk is about (optional) — shown on the CR card (2026-10-10)
+  createdBy     String
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  updatedByName String? // who saved it last — named in the "updated meanwhile" warning (2026-10-10)
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
   creator User    @relation(fields: [createdBy], references: [id])

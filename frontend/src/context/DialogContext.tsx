@@ -5,7 +5,7 @@ type Variant = 'danger' | 'warning' | 'info' | 'success';
 
 interface DialogContextValue {
   alert:   (message: string, title?: string, variant?: Variant) => void;
-  confirm: (message: string, title?: string, variant?: Variant) => Promise<boolean>;
+  confirm: (message: string, title?: string, variant?: Variant, labels?: { confirm?: string; cancel?: string }) => Promise<boolean>;
   /** Branded replacement for window.prompt — resolves null on cancel. */
   prompt:  (opts: { title: string; label: string; message?: string; placeholder?: string; defaultValue?: string; optional?: boolean; confirmLabel?: string; variant?: Variant }) => Promise<string | null>;
 }
@@ -39,13 +39,14 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
     message: string,
     title   = 'אישור פעולה',
     variant: Variant = 'warning',
+    labels?: { confirm?: string; cancel?: string },
   ): Promise<boolean> => {
     return new Promise(resolve => {
       resolveRef.current = resolve;
       setConfig({
         title, message, variant,
-        confirmLabel: 'אישור',
-        cancelLabel:  'ביטול',
+        confirmLabel: labels?.confirm ?? 'אישור',
+        cancelLabel:  labels?.cancel ?? 'ביטול',
         onConfirm: () => { resolveRef.current?.(true);  resolveRef.current = null; setConfig(null); },
         onCancel:  () => { resolveRef.current?.(false); resolveRef.current = null; setConfig(null); },
       });

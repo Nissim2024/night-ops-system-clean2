@@ -3,6 +3,7 @@ import axios from 'axios';
 import { C, FONT, TEXT, WEIGHT, SP, RADIUS } from '../../theme';
 import { cn } from '../../lib/utils';
 import { useDialog } from '../../context/DialogContext';
+import { askStaleWrite } from '../../utils/staleWrite';
 import { ConfirmDialog, DialogConfig } from '../ConfirmDialog';
 import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
@@ -712,7 +713,21 @@ export default function QaWorkPlanView({ token, initialVersionId, versionQaStart
   const saveNotes = async (cycleId: string) => {
     setSavingNotes(prev => ({ ...prev, [cycleId]: true }));
     try {
-      await ax.patch(`${API}/qa/workplan/cycle/${cycleId}/notes`, { notes: editNotes[cycleId] ?? '' });
+      // based on the notes as loaded — refused if a colleague changed them meanwhile (2026-10-10)
+      const loaded = workPlan?.cycles.find(c => c.id === cycleId)?.notes ?? null;
+      const send = (force: boolean) => ax.patch(`${API}/qa/workplan/cycle/${cycleId}/notes`,
+        { notes: editNotes[cycleId] ?? '', base: { notes: loaded }, ...(force ? { force: true } : {}) });
+      try { await send(false); } catch (e: any) {
+        const choice = await askStaleWrite(e, dialog.confirm);
+        if (choice === 'reload') {
+          const fresh = (await ax.get(`${API}/qa/workplan?versionId=${versionId}`)).data ?? null;
+          setWorkPlan(fresh);
+          setEditNotes(prev => ({ ...prev, [cycleId]: fresh?.cycles?.find((c: any) => c.id === cycleId)?.notes ?? '' }));
+          return;
+        }
+        if (choice !== 'force') throw e;
+        await send(true);
+      }
       setWorkPlan(prev => prev ? {
         ...prev,
         cycles: prev.cycles.map(c => c.id === cycleId ? { ...c, notes: editNotes[cycleId] ?? '' } : c),

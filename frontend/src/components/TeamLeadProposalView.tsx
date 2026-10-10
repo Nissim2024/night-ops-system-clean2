@@ -9,6 +9,8 @@ import { cleanHtmlText } from '../utils/textSanitize';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectIdBadge } from './shared/defectFieldDisplay';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
+import { useDialog } from '../context/DialogContext';
+import { askStaleWrite } from '../utils/staleWrite';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -159,6 +161,7 @@ interface Proposal {
 interface CrPlanData {
   id: string;
   crNumber: string;
+  updatedAt?: string;          // optimistic concurrency — sent back as baseUpdatedAt (2026-10-10)
   crLabel?: string;
   crManager?: string;
   crDescription?: string;
@@ -680,6 +683,7 @@ const targetDefectStatusColor = (status: string): string => {
 };
 
 export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versionName, teamIdOverride, teamNameOverride, reviewMeetingTime, isManager }) => {
+  const appDialog = useDialog();   // `dialog` below is this screen's own ConfirmDialog state
   const [proposals, setProposals]       = useState<Proposal[]>([]);
   const [crItems, setCrItems]           = useState<CrItem[]>([]);
   const [users, setUsers]               = useState<User[]>([]);
@@ -1319,7 +1323,9 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     setSavingPlan(crNumber);
     try {
       const label = getCrLabel(crNumber) || crPlans[crNumber]?.crLabel || '';
-      const res = await axios.post(`${API}/cr-plans/version/${versionId}`, {
+      // someone else saved this plan since it was loaded → ask before overwriting (2026-10-10)
+      const send = (force: boolean) => axios.post(`${API}/cr-plans/version/${versionId}`, {
+        baseUpdatedAt: crPlans[crNumber]?.updatedAt, ...(force ? { force: true } : {}),
         crNumber,
         crLabel: label || undefined,
         crType: f.crType || undefined,
@@ -1349,6 +1355,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         monitoringPoints: f.monitoringPoints,
         ...(teamIdOverride ? { teamIdOverride } : {}),
       }, { headers });
+      let res: { data: any };
+      try { res = await send(false); } catch (e: any) {
+        const choice = await askStaleWrite(e, appDialog.confirm);
+        if (choice === 'reload') { await fetchCrPlans(); return null; }
+        if (choice !== 'force') throw e;
+        res = await send(true);
+      }
       setCrPlans(prev => ({ ...prev, [crNumber]: res.data }));
       // Rebuild form state from the server response (not the locally-sent `f`) so
       // ids assigned to newly-created actions/monitoring points flow back into local
@@ -1452,7 +1465,8 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
     setTogglingNotNeeded(prev => new Set(prev).add(crNumber));
     try {
       const label = getCrLabel(crNumber) || crPlans[crNumber]?.crLabel || '';
-      const res = await axios.post(`${API}/cr-plans/version/${versionId}`, {
+      const send = (force: boolean) => axios.post(`${API}/cr-plans/version/${versionId}`, {
+        baseUpdatedAt: crPlans[crNumber]?.updatedAt, ...(force ? { force: true } : {}),
         crNumber,
         crLabel: label || undefined,
         notNeededForPlan: !current,
@@ -1460,6 +1474,13 @@ export const TeamLeadProposalView: React.FC<Props> = ({ token, versionId, versio
         gateAnswered: current ? false : true,
         ...(teamIdOverride ? { teamIdOverride } : {}),
       }, { headers });
+      let res: { data: any };
+      try { res = await send(false); } catch (e: any) {
+        const choice = await askStaleWrite(e, appDialog.confirm);
+        if (choice === 'reload') { await fetchCrPlans(); return; }
+        if (choice !== 'force') throw e;
+        res = await send(true);
+      }
       setCrPlans(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || res.data), ...res.data } }));
       setCrPlanForms(prev => ({ ...prev, [crNumber]: { ...(prev[crNumber] || emptyCrPlanForm()), gateAnswered: !current ? true : false } }));
       // A CR marked "no special impact" can't have leftover tasks tied to it —

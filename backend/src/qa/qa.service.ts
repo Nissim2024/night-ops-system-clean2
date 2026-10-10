@@ -4,6 +4,7 @@ import { scoreForCr, resolveSkillName, ScoringResult } from './qa.engine';
 import { addWorkDays, nextWorkDay, getFirstWorkDay, dateKey } from './qa.scheduler';
 import { VersionCrAssignmentsService } from '../version-cr-assignments/version-cr-assignments.service';
 import { prisma } from '../prisma-client';
+import { assertFieldsUnchanged, editorName } from '../stale-write';
 
 // Only getChangeDetail (a pure CR_LIST file read) is used from here, so the
 // injected QC / QA-plan services (needed only by removeCr/restore) are absent.
@@ -398,10 +399,16 @@ export class QaService {
     secondarySkillLevel?: number | null;
     secondaryParticipationPct?: number | null;
     standAloneDueDate?:   Date | null;
-  }) {
+  }, opts: { base?: Record<string, unknown>; force?: boolean; userId?: string } = {}) {
+    // someone changed these same fields since the screen loaded them → refuse (2026-10-10)
+    if (opts.base) {
+      const cur = await prisma.qaAssignment.findUnique({ where: { id } });
+      assertFieldsUnchanged(cur, opts.base, opts.force, 'שיבוץ ה-QA', { isStandAlone: 'Stand Alone', cycles: 'סבבים', sortOrder: 'סדר', qaEffort: 'ימי עבודה', secondaryTesterId: 'בודק משני', secondaryParticipationPct: 'אחוז השתתפות', standAloneDueDate: 'מועד Stand Alone' });
+    }
+    const updatedByName = await editorName(opts.userId);
     const result = await prisma.qaAssignment.update({
       where:   { id },
-      data:    patch as any,
+      data:    { ...(patch as any), ...(updatedByName ? { updatedByName } : {}) },
       include: {
         user:          { select: { id: true, fullName: true, email: true } },
         secondaryUser: { select: { id: true, fullName: true, email: true } },

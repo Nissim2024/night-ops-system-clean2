@@ -7,6 +7,7 @@ import { DateField } from '../DatePicker';
 import { formatDate as fmtDateShared, formatDateTime as fmtDateTimeShared } from '../../utils/dateFormat';
 import { cn } from '../../lib/utils';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from '../ui/BrandedDialog';
+import { askStaleWrite } from '../../utils/staleWrite';
 const QaWorkPlanView    = lazy(() => import('./QaWorkPlanView'));
 const QaActivityPlanView = lazy(() => import('./QaActivityPlanView'));
 
@@ -687,6 +688,12 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
   useEffect(() => { if (initialTab) setActiveTab(initialTab.tab); }, [initialTab]);
   const [crs, setCrs]                   = useState<CrRec[]>([]);
   const [assignments, setAssignments]   = useState<Assignment[]>([]);
+  // what each save last saw — the server refuses a save of a field someone
+  // else changed meanwhile (stale-write, 2026-10-10)
+  const assignmentsRef = useRef<Assignment[]>([]);
+  assignmentsRef.current = assignments;
+  const planBaseRef = useRef<Record<string, unknown> | null>(null);
+  const loadVersionRef = useRef<((vId: string) => Promise<void>) | null>(null);
   const [loading, setLoading]           = useState(false);
   const [generating, setGenerating]     = useState(false);
   const [syncing, setSyncing]           = useState(false);
@@ -892,6 +899,10 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
         }
       }
       setCycleTasksByCr(taskMap);
+      planBaseRef.current = plan ? {
+        cycle1Start: plan.cycle1Start, testingEnd: plan.testingEnd,
+        cycle1LengthDays: plan.cycle1LengthDays ?? null, cycle2LengthDays: plan.cycle2LengthDays ?? null, cycle3LengthDays: plan.cycle3LengthDays ?? null,
+      } : null;
       if (plan?.cycle1Start) {
         setCycle1Start(toInputDate(plan.cycle1Start));
         setTestingEnd(toInputDate(plan.testingEnd));
@@ -910,6 +921,7 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
+  loadVersionRef.current = loadVersion;
 
   useEffect(() => { loadVersion(selectedVId); }, [selectedVId, loadVersion]);
 
@@ -1170,6 +1182,22 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
     }
   };
 
+  // An assignment PATCH that carries the values it was based on; a field a
+  // colleague changed meanwhile → ask: reload theirs, or save anyway.
+  const selectedVIdRef = useRef(selectedVId);
+  selectedVIdRef.current = selectedVId;
+  const patchAssignmentChecked = async (id: string, patch: Record<string, unknown>) => {
+    const cur: any = assignmentsRef.current.find(a => a.id === id);
+    const base = cur ? Object.fromEntries(Object.keys(patch).map(k => [k, cur[k] ?? null])) : undefined;
+    const send = (force: boolean) => axios.patch(`${API}/qa/assignments/${id}`, { ...patch, base, ...(force ? { force: true } : {}) }, { headers });
+    try { return await send(false); } catch (e: any) {
+      const choice = await askStaleWrite(e, dialog.confirm);
+      if (choice === 'reload') { await loadVersionRef.current?.(selectedVIdRef.current); return null; }
+      if (choice !== 'force') throw e;
+      return send(true);
+    }
+  };
+
   // ── Save QA effort override ────────────────────────────────────────────────
 
   const saveEffort = useCallback(async (crNumber: string, value: string, asgId?: string) => {
@@ -1181,7 +1209,8 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
     if (isNaN(parsed) || parsed <= 0) return;
     try {
       if (asgId) {
-        const res = await axios.patch(`${API}/qa/assignments/${asgId}`, { qaEffort: parsed }, { headers });
+        const res = await patchAssignmentChecked(asgId, { qaEffort: parsed });
+        if (!res) return;
         setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
         // The server cascades this into the live work plan's task effort/dates
         // (qa.service.ts's cascadeEffortToWorkPlan) when a plan exists — a local
@@ -1207,7 +1236,8 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
     patch: { isStandAlone?: boolean | null; cycles?: string[]; sortOrder?: number; standAloneDueDate?: string | null; secondaryParticipationPct?: number | null },
   ) => {
     try {
-      const res = await axios.patch(`${API}/qa/assignments/${id}`, patch, { headers });
+      const res = await patchAssignmentChecked(id, patch);
+      if (!res) return;
       setAssignments(prev => [...prev.filter(a => a.crNumber !== crNumber), res.data]);
     } catch (e) {
       console.error('patch failed', e);
@@ -1533,11 +1563,18 @@ export default function QaAssignmentView({ token, initialVersionId, initialTab }
   const doSaveWorkPlanSettings = async () => {
     setSavingSettings(true);
     try {
-      await axios.patch(
+      const send = (force: boolean) => axios.patch(
         `${API}/qa/workplan/settings`,
-        { versionId: selectedVId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays },
+        { versionId: selectedVId, cycle1Start, testingEnd, cycle1LengthDays, cycle2LengthDays, cycle3LengthDays,
+          base: planBaseRef.current ?? undefined, ...(force ? { force: true } : {}) },
         { headers },
       );
+      try { await send(false); } catch (e: any) {
+        const choice = await askStaleWrite(e, dialog.confirm);
+        if (choice === 'reload') { await loadVersion(selectedVId); return; }
+        if (choice !== 'force') throw e;
+        await send(true);
+      }
       dialog.alert('השינויים נשמרו ועודכנו מיד בתוכנית הקיימת (מועדי המשימות בפועל שוקללו מחדש) — אין צורך ביצירת תוכנית מחדש.', 'נשמר', 'success');
       // Same staleness gap as doGenerateWorkPlan above — a cycle1Start move
       // reflows real task dates server-side, invisible here without a refetch.
@@ -2948,7 +2985,7 @@ CRים אלה לא ייכללו בתוכנית העבודה.
                                       const v = Math.min(99, Math.max(1, parseInt(e.target.value, 10) || 50));
                                       setSaving(cr.crNumber);
                                       try {
-                                        await axios.patch(`${API}/qa/assignments/${asg.id}`, { secondaryParticipationPct: v }, { headers });
+                                        await patchAssignmentChecked(asg.id, { secondaryParticipationPct: v });
                                         await loadVersion(selectedVId);
                                       } finally {
                                         setSaving(null);

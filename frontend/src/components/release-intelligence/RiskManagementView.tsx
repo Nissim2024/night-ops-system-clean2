@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback } from 'react';
 import axios from 'axios';
 import { C } from '../../theme';
 import { cn } from '../../lib/utils';
+import { useDialog } from '../../context/DialogContext';
+import { askStaleWrite } from '../../utils/staleWrite';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -10,6 +12,7 @@ interface Risk {
   impact: string | null; mitigation: string | null; status: string;
   crNumber: string | null;
   createdAt: string;
+  updatedAt?: string;   // sent back as baseUpdatedAt — refused if someone saved meanwhile (2026-10-10)
 }
 
 const SEVERITY_OPTIONS = [
@@ -74,6 +77,7 @@ function toDraft(r: Risk): Draft {
 // severity, probability, impact, mitigation, status — inline add/edit, no modal.
 export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) => {
   const headers = { Authorization: `Bearer ${token}` };
+  const dialog = useDialog();
   const [risks, setRisks] = useState<Risk[]>([]);
   const [loading, setLoading] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -118,7 +122,15 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
     setSaving(true);
     try {
       if (editingId) {
-        await axios.patch(`${API}/release-intelligence/risks/${editingId}`, payload, { headers });
+        const base = risks.find(x => x.id === editingId)?.updatedAt;
+        const send = (force: boolean) => axios.patch(`${API}/release-intelligence/risks/${editingId}`,
+          { ...payload, baseUpdatedAt: base, ...(force ? { force: true } : {}) }, { headers });
+        try { await send(false); } catch (e: any) {
+          const choice = await askStaleWrite(e, dialog.confirm);
+          if (choice === 'reload') { load(); cancel(); setSaving(false); return; }
+          if (choice !== 'force') throw e;
+          await send(true);
+        }
       } else {
         await axios.post(`${API}/release-intelligence/risks`, { ...payload, versionId }, { headers });
       }

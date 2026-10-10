@@ -17,6 +17,7 @@ import {
 } from './qa.scheduler';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
 import { prisma } from '../prisma-client';
+import { assertFieldsUnchanged, editorName } from '../stale-write';
 
 
 const CYCLE_ORDER: CycleType[] = [
@@ -418,9 +419,15 @@ export class QaWorkPlanService {
     cycle1LengthDays?: number,
     cycle2LengthDays?: number,
     cycle3LengthDays?: number,
+    opts: { base?: Record<string, unknown>; force?: boolean; userId?: string } = {},
   ) {
     const plan = await prisma.qaWorkPlan.findUnique({ where: { versionId }, include: { cycles: true } });
     if (!plan) throw new NotFoundException('אין תוכנית עבודה קיימת לגרסה זו — יש ליצור תוכנית קודם');
+    // someone changed these settings since the screen loaded them → refuse (2026-10-10)
+    assertFieldsUnchanged(plan, opts.base, opts.force, 'הגדרות תוכנית העבודה',
+      { cycle1Start: 'תחילת סבב 1', testingEnd: 'סיום הבדיקות', cycle1LengthDays: 'אורך סבב 1', cycle2LengthDays: 'אורך סבב 2', cycle3LengthDays: 'אורך סבב 3' });
+    const settingsBy = await editorName(opts.userId);
+    if (settingsBy) await prisma.qaWorkPlan.update({ where: { id: plan.id }, data: { updatedByName: settingsBy } });
 
     // Same "go-live can't precede testing end" guard as generateWorkPlan —
     // here plannedStart is much more likely to already be set (a plan already
@@ -1087,17 +1094,24 @@ export class QaWorkPlanService {
 
   // ── Update cycle dates (after team lead adjusts) ────────────────────────────
 
-  async updateCycleDates(cycleId: string, plannedStart: Date, plannedEnd: Date) {
+  async updateCycleDates(cycleId: string, plannedStart: Date, plannedEnd: Date,
+    opts: { base?: Record<string, unknown>; force?: boolean; userId?: string } = {}) {
+    if (opts.base) assertFieldsUnchanged(await prisma.qaCycle.findUnique({ where: { id: cycleId } }), opts.base, opts.force, 'תאריכי הסבב',
+      { plannedStart: 'תחילה', plannedEnd: 'סיום' });
+    const updatedByName = await editorName(opts.userId);
     return prisma.qaCycle.update({
       where: { id: cycleId },
-      data:  { plannedStart, plannedEnd },
+      data:  { plannedStart, plannedEnd, ...(updatedByName ? { updatedByName } : {}) },
     });
   }
 
   // ── Update cycle notes (for Rehearsal / Go-Live content) ───────────────────
 
-  async updateCycleNotes(cycleId: string, notes: string) {
-    return prisma.qaCycle.update({ where: { id: cycleId }, data: { notes } });
+  async updateCycleNotes(cycleId: string, notes: string,
+    opts: { base?: Record<string, unknown>; force?: boolean; userId?: string } = {}) {
+    if (opts.base) assertFieldsUnchanged(await prisma.qaCycle.findUnique({ where: { id: cycleId } }), opts.base, opts.force, 'הערות הסבב', { notes: 'הערות' });
+    const updatedByName = await editorName(opts.userId);
+    return prisma.qaCycle.update({ where: { id: cycleId }, data: { notes, ...(updatedByName ? { updatedByName } : {}) } });
   }
 
   // ── Update cycle QG Threshold + Environment (2026-09-23) — editable

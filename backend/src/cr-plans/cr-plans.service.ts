@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { prisma } from '../prisma-client';
+import { assertNotStale, editorName } from '../stale-write';
 
 const MANAGERS     = ['RELEASE_MANAGER', 'ADMIN'];
 const CR_APPROVERS = ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
@@ -138,6 +139,9 @@ export class CrPlansService {
       nextDayTestNeeded?: boolean;
       nextDayTestNotes?: string;
       rollbackType?: string;
+      // optimistic concurrency (stale-write.ts) — the plan's updatedAt as loaded / save anyway
+      baseUpdatedAt?: string;
+      force?: boolean;
       actions?: {
         id?: string; actionType: string; description: string; phase: number; subPhaseId?: string; system?: string;
         estimatedMins?: number; dependsOnTaskId?: string; dependencyNote?: string;
@@ -162,8 +166,9 @@ export class CrPlansService {
 
     const {
       dependsOnCrs, dependencyNotes = {}, teamIdOverride: _removed, syncOnly,
-      actions, monitoringPoints, ...fields
+      actions, monitoringPoints, baseUpdatedAt, force, ...fields
     } = dto;
+    const updatedByName = syncOnly ? undefined : await editorName(user.sub);
 
     const include = {
       crDeps: true,
@@ -181,6 +186,8 @@ export class CrPlansService {
       // (A real, explicit edit — e.g. reopening via "יש השפעה בכל זאת" — is not
       // syncOnly, so it clears the tombstone and proceeds normally below.)
       if (existing.removedByTeam && syncOnly) return existing;
+      // someone else saved this plan since the screen loaded it → don't overwrite (2026-10-10)
+      if (!syncOnly) assertNotStale(existing, { baseUpdatedAt, force }, 'תוכנית ה-CR עודכנה');
 
       if (actions !== undefined) await this.reconcileActions(existing.id, actions);
       if (monitoringPoints !== undefined) await this.reconcileMonitoringPoints(existing.id, monitoringPoints);
@@ -194,6 +201,7 @@ export class CrPlansService {
         where: { id: existing.id },
         data: {
           ...fields,
+          ...(updatedByName ? { updatedByName } : {}),
           ...(revertingNotNeeded ? { submissionStatus: 'DRAFT' as any } : {}),
           ...(existing.removedByTeam ? { removedByTeam: false } : {}),
           ...(dependsOnCrs !== undefined
@@ -215,6 +223,7 @@ export class CrPlansService {
         versionId,
         teamId: resolvedTeamId,
         ...fields,
+        ...(updatedByName ? { updatedByName } : {}),
         ...(dependsOnCrs !== undefined
           ? { crDeps: { create: dependsOnCrs.map(cr => ({ dependsOnCr: cr, note: dependencyNotes[cr] || undefined })) } }
           : {}),

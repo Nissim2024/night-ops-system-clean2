@@ -207,7 +207,7 @@ export class ReleaseIntelligenceController {
   @Patch('risks/:id')
   updateRisk(@Param('id') id: string, @Body() body: any, @Request() req: any) {
     requireRole(req, RISK_WRITERS);
-    return this.service.updateRisk(id, body);
+    return this.service.updateRisk(id, body, req.user?.sub);
   }
 
   @Patch('risks/:id/close')

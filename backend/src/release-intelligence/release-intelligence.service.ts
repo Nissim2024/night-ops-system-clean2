@@ -4,6 +4,7 @@ import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDt
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 import { Cr360Defect, Cr360PlanTeam, isOpenStatus, testsFinished, planStateOf, planOverall, crTrafficLight } from './cr-360';
 import { prisma } from '../prisma-client';
+import { assertNotStale, editorName } from '../stale-write';
 
 
 // QG thresholds — spec section 25: should come from QC Cycle Configuration,
@@ -2914,21 +2915,27 @@ export class ReleaseIntelligenceService {
     return prisma.releaseRisk.findMany({ where: { versionId }, orderBy: { createdAt: 'desc' } });
   }
 
-  createRisk(data: {
+  async createRisk(data: {
     versionId: string; title: string; description?: string; severity?: string;
     impact?: string; probability?: string; owner?: string; mitigation?: string; crNumber?: string | null; createdBy: string;
   }) {
     if (!data.title?.trim()) throw new BadRequestException('כותרת סיכון היא שדה חובה');
-    return prisma.releaseRisk.create({ data: { ...data, crNumber: data.crNumber?.trim() || null } as any });
+    const updatedByName = await editorName(data.createdBy);
+    return prisma.releaseRisk.create({ data: { ...data, crNumber: data.crNumber?.trim() || null, ...(updatedByName ? { updatedByName } : {}) } as any });
   }
 
-  updateRisk(id: string, data: Partial<{
+  async updateRisk(id: string, data: Partial<{
     title: string; description: string; severity: string; impact: string;
     probability: string; owner: string; mitigation: string; status: string; crNumber: string | null;
-  }>) {
-    const patch: any = { ...data };
+    baseUpdatedAt: string; force: boolean;
+  }>, userId?: string) {
+    const { baseUpdatedAt, force, ...rest } = data;
+    // someone saved this risk since the screen loaded it → don't overwrite (2026-10-10)
+    assertNotStale(await prisma.releaseRisk.findUnique({ where: { id } }), { baseUpdatedAt, force }, 'הסיכון עודכן');
+    const patch: any = { ...rest };
     if ('crNumber' in patch) patch.crNumber = patch.crNumber?.trim() || null;
-    return prisma.releaseRisk.update({ where: { id }, data: patch });
+    const updatedByName = await editorName(userId);
+    return prisma.releaseRisk.update({ where: { id }, data: { ...patch, ...(updatedByName ? { updatedByName } : {}) } });
   }
 
   // CRs of a version, for the risk form's "CR" picker (2026-10-10)

@@ -150,7 +150,11 @@ export class QaController {
   @Patch('assignments/:id')
   patchAssignment(
     @Param('id') id: string,
+    @Request() req: any,
     @Body() body: {
+      // optimistic concurrency — the fields' values as loaded / save anyway (stale-write.ts)
+      base?: Record<string, unknown>;
+      force?: boolean;
       isStandAlone?:        boolean | null;
       cycles?:              string[];
       sortOrder?:           number;
@@ -161,12 +165,13 @@ export class QaController {
       standAloneDueDate?:   string | null;
     },
   ) {
+    const { base, force, ...patch } = body;
     return this.qa.patchAssignment(id, {
-      ...body,
-      standAloneDueDate: body.standAloneDueDate !== undefined
-        ? (body.standAloneDueDate ? new Date(body.standAloneDueDate) : null)
+      ...patch,
+      standAloneDueDate: patch.standAloneDueDate !== undefined
+        ? (patch.standAloneDueDate ? new Date(patch.standAloneDueDate) : null)
         : undefined,
-    });
+    }, { base, force, userId: req.user?.sub });
   }
 
   @Patch('assignments/:id/reorder')
@@ -253,9 +258,11 @@ export class QaController {
 
   @Patch('workplan/settings')
   updatePlanSettings(
+    @Request() req: any,
     @Body() body: {
       versionId: string; cycle1Start: string; testingEnd: string;
       cycle1LengthDays?: number; cycle2LengthDays?: number; cycle3LengthDays?: number;
+      base?: Record<string, unknown>; force?: boolean;
     },
   ) {
     return this.workPlan.updatePlanSettings(
@@ -265,6 +272,7 @@ export class QaController {
       body.cycle1LengthDays,
       body.cycle2LengthDays,
       body.cycle3LengthDays,
+      { base: body.base, force: body.force, userId: req.user?.sub },
     );
   }
 
@@ -370,20 +378,23 @@ export class QaController {
   @Patch('workplan/cycle/:id/notes')
   updateCycleNotes(
     @Param('id') cycleId: string,
-    @Body('notes') notes: string,
+    @Body() body: { notes: string; base?: Record<string, unknown>; force?: boolean },
+    @Request() req: any,
   ) {
-    return this.workPlan.updateCycleNotes(cycleId, notes);
+    return this.workPlan.updateCycleNotes(cycleId, body?.notes, { base: body?.base, force: body?.force, userId: req.user?.sub });
   }
 
   @Patch('workplan/cycle/:id/dates')
   updateCycleDates(
     @Param('id') cycleId: string,
-    @Body() body: { plannedStart: string; plannedEnd: string },
+    @Body() body: { plannedStart: string; plannedEnd: string; base?: Record<string, unknown>; force?: boolean },
+    @Request() req: any,
   ) {
     return this.workPlan.updateCycleDates(
       cycleId,
       new Date(body.plannedStart),
       new Date(body.plannedEnd),
+      { base: body.base, force: body.force, userId: req.user?.sub },
     );
   }
 
