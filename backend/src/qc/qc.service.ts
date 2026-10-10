@@ -3105,6 +3105,19 @@ function computeAllDefectsDashboard(rows: AllDefectsRawRow[]): AllDefectsDashboa
 // confirmed by the user 2026-10-06: מערכת = BG_USER_49, מודול = Sub Module
 // (BG_USER_14), team = BG_USER_03, owner = BG_RESPONSIBLE. "נושא" dropped.
 // Pre-12c Oracle + ASCII-only SQL text (see QC notes): no FETCH FIRST.
+// The QC releases holding defects of one CR (CR card, 2026-10-10). Same CR
+// match as the TARGET-CR queries: "13083 - name" or just "13083". Pre-12c,
+// ASCII-only SQL text.
+const CR_DEFECT_RELEASES_SQL = `
+  SELECT detected_rel.REL_NAME AS REL_NAME,
+         COUNT(*) AS DEFECTS,
+         SUM(CASE WHEN LOWER(TRIM(BG_USER_04)) IN ('closed', 'canceled', 'cancelled') THEN 0 ELSE 1 END) AS OPEN_DEFECTS
+  FROM BUG
+  JOIN RELEASES detected_rel ON detected_rel.REL_ID = BUG.BG_DETECTED_IN_REL
+  WHERE (BG_USER_10 LIKE :crNumber || ' %' OR TRIM(BG_USER_10) = :crNumber)
+  GROUP BY detected_rel.REL_NAME
+`;
+
 const DEFECTS_ANALYTICS_SQL = `
   SELECT
     BG_BUG_ID            AS DEFECT_ID,
@@ -5510,6 +5523,43 @@ export class QcService implements OnApplicationBootstrap {
     } catch (err: any) {
       this.logger.error(`Oracle getDefectFieldHistory: ${err.message}`);
       throw err;
+    } finally {
+      if (conn) await conn.close().catch(() => {});
+    }
+  }
+
+  // CR card (2026-10-10): every QC release where defects were opened on this
+  // CR (CR/HBR Number reference = "13083 - name"), with the release's QC id,
+  // so the card can show a CR that no DeployCenter version lists — and offer
+  // "פתח כגרסה" for a release nobody opened yet.
+  async getCrDefectReleases(crNumber: string): Promise<{ releaseName: string; defects: number; open: number }[]> {
+    const cr = String(crNumber ?? '').trim();
+    if (!/^\d+$/.test(cr)) return [];
+    const { enabled } = await getOracleConfig();
+    if (!enabled) {
+      const rows = loadRealAllBugs() ?? [];
+      const m = new Map<string, { defects: number; open: number }>();
+      for (const b of rows) {
+        const ref = String(b.CR_HBR_NUMBER_REFERENCE ?? '').trim();
+        if (/^(\d+)/.exec(ref)?.[1] !== cr) continue;
+        const rel = String(b.DETECTED_IN_RELEASE ?? '').trim();
+        if (!rel) continue;
+        const e = m.get(rel) ?? { defects: 0, open: 0 };
+        e.defects++;
+        if (!['closed', 'canceled', 'cancelled'].includes(String(b.DEFECT_STATUS ?? '').trim().toLowerCase())) e.open++;
+        m.set(rel, e);
+      }
+      return Array.from(m, ([releaseName, v]) => ({ releaseName, ...v }));
+    }
+    let conn: any;
+    try {
+      conn = await oracleConnect();
+      const res = await conn.execute(CR_DEFECT_RELEASES_SQL, { crNumber: cr });
+      return ((res.rows ?? []) as any[]).map(x => ({ releaseName: String(x.REL_NAME ?? ''), defects: Number(x.DEFECTS ?? 0), open: Number(x.OPEN_DEFECTS ?? 0) }))
+        .filter(x => x.releaseName);
+    } catch (err: any) {
+      this.logger.error(`Oracle getCrDefectReleases: ${err.message}`);
+      return [];
     } finally {
       if (conn) await conn.close().catch(() => {});
     }

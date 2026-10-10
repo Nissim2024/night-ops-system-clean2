@@ -25,7 +25,11 @@ interface PlanTeam {
 interface Dep { crNumber: string; note: string | null; team: string; crLabel: string; inVersion: boolean; executedPct: number | null; testsFinished: boolean; openDefectIds: string[] }
 export interface Cr360 {
   crNumber: string; crLabel: string; versionId: string | null;
-  versions: { id: string; name: string; goLive: string | null; archived: boolean }[];
+  versions: { id: string; name: string; goLive: string | null; archived: boolean; historical?: boolean; listed?: boolean; qcDefects?: { defects: number; open: number } | null }[];
+  // QC releases with defects of the CR that no one opened as a version (2026-10-10)
+  qcOnly?: { relId: number | null; releaseName: string; defects: number; open: number }[];
+  historical?: boolean;          // a QC release opened as a version — QC data only
+  listedInVersion?: boolean;     // the version's CR list has it (else found through its QC defects)
   version?: { id: string; name: string; goLive: string | null; daysToGoLive: number | null };
   light?: { light: Light; reasons: { key: string; light: Light; text: string }[] };
   defects?: { testing: D[]; afterGoLive: D[]; blocking: D[] };
@@ -80,15 +84,17 @@ const groupBy = (ds: D[], key: (d: D) => string) => {
   return Array.from(m.entries()).sort((a, b) => b[1].length - a[1].length);
 };
 
+// What DeployCenter itself manages doesn't exist for a historical version
+const NotManaged: React.FC = () => <Empty>לא נוהל ב-DeployCenter — גרסה היסטורית שנפתחה מ-QC.</Empty>;
+
 export const Cr360Panels: React.FC<{
   data: Cr360; onDrill: (title: string, ids: string[]) => void; onOpenCr: (cr: string) => void;
 }> = ({ data, onDrill, onOpenCr }) => {
+  const hist = !!data.historical;
   const [planOpen, setPlanOpen] = useState<string | null>(null);   // team name or '*'
   const [flash, setFlash] = useState<string | null>(null);
   const cr = data.crNumber;
-  if (!data.versionId || !data.defects || !data.light) {
-    return <Card padding={4}><Empty>ה-CR לא שובץ לאף גרסה ב-DeployCenter — אין עדיין תקלות, בדיקות או תוכנית הטמעה להציג.</Empty></Card>;
-  }
+  if (!data.versionId || !data.defects || !data.light) return null;   // nothing in any version — see QcReleasesNotice
   const t = data.defects.testing;
   const open = t.filter(d => d.open);
   const L = LIGHT[data.light.light];
@@ -115,6 +121,12 @@ export const Cr360Panels: React.FC<{
             </span>
           )}
         </div>
+        {(hist || data.listedInVersion === false) && (
+          <div className="mt-1 text-xs text-muted-foreground">
+            {hist && 'גרסה היסטורית שנפתחה מ-QC — מוצגים נתוני QC בלבד (תקלות, כיסוי, UAT, סיכום בדיקות). '}
+            {data.listedInVersion === false && 'ה-CR לא ברשימת ה-CR-ים של הגרסה — נמצא לפי התקלות שנפתחו עליו ב-QC.'}
+          </div>
+        )}
         {data.light.reasons.length > 0 ? (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {data.light.reasons.map((r, i) => (
@@ -246,7 +258,7 @@ export const Cr360Panels: React.FC<{
             {(() => {
               const r = data.risks!;
               const nothing = !r.daily && !r.plans.length && !r.blockers.length && !r.manual.length;
-              if (nothing) return <Empty>לא זוהו ולא הוזנו סיכונים ל-CR.</Empty>;
+              if (nothing) return hist ? <NotManaged /> : <Empty>לא זוהו ולא הוזנו סיכונים ל-CR.</Empty>;
               return (
                 <div className="flex flex-col gap-3 text-[13px]">
                   <div>
@@ -346,12 +358,12 @@ export const Cr360Panels: React.FC<{
         <Card padding={4}>
           {(() => {
             const p = data.plan!;
-            const head = p.status === 'complete' ? ['✅ הושלמה', C.success] : p.status === 'partial' ? ['◐ חלקית', C.warning] : p.status === 'not-opened' ? ['⛔ לא נפתחה', C.danger] : ['—', C.textMuted];
+            const head = hist ? ['—', C.textMuted] : p.status === 'complete' ? ['✅ הושלמה', C.success] : p.status === 'partial' ? ['◐ חלקית', C.warning] : p.status === 'not-opened' ? ['⛔ לא נפתחה', C.danger] : ['—', C.textMuted];
             const missing = p.teams.filter(x => x.state !== 'approved' && x.state !== 'not-needed');
             return (
               <>
                 <PanelTitle icon="🚀" title="תוכנית הטמעה" right={<Badge color={head[1]} bg={C.bgNested}>{head[0]}</Badge>} />
-                {p.status === 'none' ? <Empty>אין צוותים שנדרשת מהם תוכנית הטמעה ל-CR.</Empty> : (
+                {hist ? <NotManaged /> : p.status === 'none' ? <Empty>אין צוותים שנדרשת מהם תוכנית הטמעה ל-CR.</Empty> : (
                   <>
                     {p.status === 'partial' && <div className="mb-2 text-xs" style={{ color: C.warning }}>טרם השלימו: {missing.map(x => x.team).join(', ')}</div>}
                     {p.status === 'not-opened' && <div className="mb-2 text-xs" style={{ color: C.danger }}>אף צוות עדיין לא פתח את תוכנית ההטמעה ל-CR.</div>}
@@ -387,7 +399,7 @@ export const Cr360Panels: React.FC<{
           <PanelTitle icon="🔗" title="תלויות" />
           {(() => {
             const d = data.dependencies!;
-            if (!d.dependsOn.length && !d.dependedBy.length) return <Empty>לא הוגדרו תלויות ל-CR בתוכניות ההטמעה.</Empty>;
+            if (!d.dependsOn.length && !d.dependedBy.length) return hist ? <NotManaged /> : <Empty>לא הוגדרו תלויות ל-CR בתוכניות ההטמעה.</Empty>;
             const row = (x: Dep, i: number) => (
               <div key={`${x.crNumber}-${i}`} className="flex items-center gap-2 border-t border-border py-1.5 text-[13px]">
                 <button onClick={() => onOpenCr(x.crNumber)} className="cursor-pointer border-none bg-transparent p-0 font-semibold text-primary" title="פתח את כרטיס ה-CR">CR {x.crNumber}</button>

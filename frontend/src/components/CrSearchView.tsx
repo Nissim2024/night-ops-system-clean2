@@ -81,6 +81,12 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
       const r = await axios.get(`${API}/version-cr-assignments/cr-card/${encodeURIComponent(crNumber)}`, { headers });
       setCard(r.data);
     } catch (e: any) {
+      // not in the CR_LIST file — still show what QC / DeployCenter hold about it (2026-10-10)
+      if (e?.response?.status === 404) {
+        setCard({ crNumber, title: '(לא נמצא בקובץ ה-CR_LIST)', description: '', versionsInFile: [], status: '', characterizer: '', characterizerGroup: '',
+          crManager: '', project: '', totalEstimateDays: null, actuals: null, teamEfforts: [], otherFields: [], inSystem: [], history: [] });
+        return;
+      }
       setError(e?.response?.data?.message ?? 'טעינת ה-CR נכשלה');
     } finally { setLoadingCard(false); }
   };
@@ -153,12 +159,14 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
               <span className="text-sm font-semibold text-foreground">גרסה:</span>
               {c360.versions.map(v => (
                 <button key={v.id} onClick={() => load360(card.crNumber, v.id)}
+                  title={[v.historical ? 'גרסה היסטורית מ-QC' : '', v.listed === false ? 'ה-CR לא ברשימת הגרסה — נמצאו עליו תקלות ב-QC' : '', v.qcDefects ? `${v.qcDefects.defects} תקלות ב-QC (${v.qcDefects.open} פתוחות)` : ''].filter(Boolean).join(' · ') || undefined}
                   className={cn('cursor-pointer rounded-full border px-3 py-1 text-xs', c360.versionId === v.id ? 'border-primary bg-primary font-bold text-white' : 'border-border bg-card text-foreground')}>
-                  {v.name}{v.goLive ? ` · ${formatDateTime(v.goLive).split(' ')[0]}` : ''}
+                  {v.name}{v.goLive ? ` · ${formatDateTime(v.goLive).split(' ')[0]}` : ''}{v.historical ? ' · היסטורית' : ''}{v.listed === false ? ' · מ-QC' : ''}
                 </button>
               ))}
             </div>
           )}
+          {c360 && <QcReleasesNotice data={c360} token={token} onOpened={vid => load360(card.crNumber, vid)} />}
           {loading360 && !c360 && <div className="p-4 text-center text-sm text-subtle-foreground">טוען את תמונת ה-CR…</div>}
           {c360 && (
             <div style={{ opacity: loading360 ? 0.5 : 1 }}>
@@ -180,6 +188,48 @@ export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQue
           value={card.crNumber} title={`תקלות CR ${card.crNumber} — ${drill.versionName}`} onClose={() => setDrill(null)} />
       )}
     </div>
+  );
+};
+
+// QC releases holding defects of the CR that nobody opened as a version yet
+// (2026-10-10): open one → its QC data appears in the card.
+const QcReleasesNotice: React.FC<{ data: Cr360; token: string; onOpened: (versionId: string) => void }> = ({ data, token, onOpened }) => {
+  const [busy, setBusy] = useState<number | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const rels = data.qcOnly ?? [];
+  if (rels.length === 0) {
+    return data.versionId ? null : (
+      <Card padding={4}><div className="text-xs text-subtle-foreground">ה-CR לא שובץ לאף גרסה ב-DeployCenter, ולא נמצאו עליו תקלות ב-QC — אין עדיין תקלות, בדיקות או תוכנית הטמעה להציג.</div></Card>
+    );
+  }
+  const open = async (relId: number) => {
+    setBusy(relId); setErr(null);
+    try {
+      const r = await axios.post(`${API}/qc-releases/${relId}/open-as-version`, {}, { headers: { Authorization: `Bearer ${token}` } });
+      onOpened(r.data.id);
+    } catch (e: any) { setErr(e?.response?.data?.message ?? 'פתיחת הגרסה נכשלה'); } finally { setBusy(null); }
+  };
+  return (
+    <Card padding={4}>
+      <div className="mb-2 text-sm font-semibold text-foreground">
+        {data.versionId ? 'נמצאו תקלות של ה-CR גם בגרסאות QC שלא נפתחו ב-DeployCenter' : 'ה-CR לא שובץ לאף גרסה ב-DeployCenter — אבל נמצאו עליו תקלות ב-QC בגרסאות:'}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {rels.map(r => (
+          <div key={r.releaseName} className="flex flex-wrap items-center gap-2 text-[13px]">
+            <span className="font-semibold text-foreground" dir="ltr">{r.releaseName}</span>
+            <span className="text-xs text-subtle-foreground">{r.defects} תקלות · {r.open} פתוחות</span>
+            {r.relId != null
+              ? <button onClick={() => open(r.relId!)} disabled={busy != null}
+                  className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-0.5 text-xs font-semibold text-primary disabled:opacity-50">
+                  {busy === r.relId ? 'פותח…' : 'פתח כגרסה והצג'}
+                </button>
+              : <span className="text-xs text-subtle-foreground">הגרסה עדיין לא ברשימת גרסאות ה-QC — יש לסנכרן אותה (במסך הניהול, לשונית סנכרון) ואז לפתוח</span>}
+          </div>
+        ))}
+      </div>
+      {err && <div className="mt-2 text-xs" style={{ color: C.danger }}>{err}</div>}
+    </Card>
   );
 };
 

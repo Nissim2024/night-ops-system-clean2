@@ -2709,30 +2709,56 @@ export class ReleaseIntelligenceService {
   // See cr-360.ts. versionId missing / not one of the CR's → its latest version.
   async getCr360(crNumber: string, versionIdArg?: string) {
     const cr = String(crNumber ?? '').trim();
-    const rows = await prisma.versionCrAssignment.findMany({
-      where: { crNumber: cr, syncStatus: { not: 'REMOVED' } },
-      select: {
-        versionId: true, crLabel: true, isArchived: true,
-        team: { select: { name: true, requiresPlan: true } },
-        version: { select: { id: true, name: true, plannedStart: true, createdAt: true, isArchived: true,
-          integrationStart: true, integrationEnd: true, qaStart: true, qaEnd: true, plannedRehearsalStart: true, plannedRehearsalEnd: true } },
-      },
-    });
-    const byVersion = new Map<string, (typeof rows)[number]['version']>();
+    const versionSelect = { id: true, name: true, plannedStart: true, createdAt: true, isArchived: true, isQcHistorical: true,
+      integrationStart: true, integrationEnd: true, qaStart: true, qaEnd: true, plannedRehearsalStart: true, plannedRehearsalEnd: true } as const;
+    const [rows, qcRels] = await Promise.all([
+      prisma.versionCrAssignment.findMany({
+        where: { crNumber: cr, syncStatus: { not: 'REMOVED' } },
+        select: {
+          versionId: true, crLabel: true, isArchived: true,
+          team: { select: { name: true, requiresPlan: true } },
+          version: { select: versionSelect },
+        },
+      }),
+      // QC releases holding defects of this CR — also versions that don't list it (2026-10-10)
+      this.qcService.getCrDefectReleases(cr).catch(() => [] as { releaseName: string; defects: number; open: number }[]),
+    ]);
+    const qcReleaseRows = qcRels.length ? await prisma.qcRelease.findMany({
+      where: { relName: { in: qcRels.map(q => q.releaseName) } },
+      select: { relId: true, relName: true, versions: { select: versionSelect, orderBy: { createdAt: 'asc' } } },
+    }) : [];
+    type V = (typeof rows)[number]['version'];
+    const byVersion = new Map<string, V>();
     for (const r of rows) byVersion.set(r.versionId, r.version);
+    const listed = new Set(byVersion.keys());
+    const qcDefectsByVersion = new Map<string, { defects: number; open: number }>();
+    for (const q of qcRels) {
+      const rel = qcReleaseRows.find(x => x.relName === q.releaseName);
+      const v = rel?.versions[0];
+      if (v) { if (!byVersion.has(v.id)) byVersion.set(v.id, v); qcDefectsByVersion.set(v.id, { defects: q.defects, open: q.open }); }
+    }
+    // QC releases with defects of the CR that nobody opened as a version yet
+    const qcOnly = qcRels.flatMap(q => {
+      const rel = qcReleaseRows.find(x => x.relName === q.releaseName);
+      return rel && rel.versions.length ? [] : [{ relId: rel?.relId ?? null, releaseName: q.releaseName, defects: q.defects, open: q.open }];
+    });
     const versions = Array.from(byVersion.values())
       .sort((a, b) => (b.plannedStart ?? b.createdAt).getTime() - (a.plannedStart ?? a.createdAt).getTime())
-      .map(v => ({ id: v.id, name: v.name, goLive: v.plannedStart, archived: v.isArchived }));
-    if (versions.length === 0) return { crNumber: cr, crLabel: '', versions: [], versionId: null };
+      .map(v => ({ id: v.id, name: v.name, goLive: v.plannedStart, archived: v.isArchived, historical: v.isQcHistorical,
+        listed: listed.has(v.id), qcDefects: qcDefectsByVersion.get(v.id) ?? null }));
+    if (versions.length === 0) return { crNumber: cr, crLabel: '', versions: [], versionId: null, qcOnly };
     const versionId = versionIdArg && byVersion.has(versionIdArg) ? versionIdArg : versions[0].id;
     const version = byVersion.get(versionId)!;
+    // a historical version opened from QC: DeployCenter never managed it — no
+    // plan / daily QA / schedule; the card shows QC data only (2026-10-10)
+    const historical = version.isQcHistorical;
     const vRows = rows.filter(r => r.versionId === versionId);
     const crLabel = vRows.find(r => r.crLabel)?.crLabel ?? rows.find(r => r.crLabel)?.crLabel ?? '';
 
     const [allDefects, coverage, daily, plans, blockers, risks, qaAssign, cycles, summary, dependents] = await Promise.all([
       this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
       this.qcService.getCrCoverage([cr], versionId).catch((): CrCoverageDto[] => []),
-      this.getDailyQaManagement(versionId).catch(() => null),
+      historical ? Promise.resolve(null) : this.getDailyQaManagement(versionId).catch(() => null),
       prisma.crPlan.findMany({
         where: { versionId, crNumber: cr, removedByTeam: false },
         include: { team: { select: { name: true } }, actions: { orderBy: { orderIndex: 'asc' } }, monitoringPoints: { orderBy: { orderIndex: 'asc' } }, crDeps: true },
@@ -2806,7 +2832,7 @@ export class ReleaseIntelligenceService {
         },
       };
     });
-    const planStatus = planOverall(planTeams);
+    const planStatus = historical ? 'none' as const : planOverall(planTeams);
 
     // ── dependencies (both directions), with each related CR's state ──
     const crNo = (v: string) => /^\s*(\d+)/.exec(v ?? '')?.[1] ?? (v ?? '').trim();
@@ -2840,6 +2866,8 @@ export class ReleaseIntelligenceService {
         return { key: c.cycleType, label, start: c.plannedStart, end: c.plannedEnd,
           mine: t ? { start: t.plannedStart, end: t.plannedEnd, tester: c.tasks.map(x => x.user?.fullName).filter(Boolean).join(', ') } : null };
       }),
+      // no QA schedule (historical / never planned) → the testing period from QC
+      ...(cycles.length === 0 && version.qaStart ? [{ key: 'qa', label: 'תקופת הבדיקות', start: version.qaStart, end: version.qaEnd, mine: null }] : []),
       { key: 'rehearsal', label: 'חזרה גנרלית', start: version.plannedRehearsalStart, end: version.plannedRehearsalEnd, mine: null },
       { key: 'golive', label: 'עלייה לאוויר', start: version.plannedStart, end: null, mine: null },
     ].filter(x => x.start);
@@ -2859,7 +2887,8 @@ export class ReleaseIntelligenceService {
     });
 
     return {
-      crNumber: cr, crLabel, versionId, versions,
+      crNumber: cr, crLabel, versionId, versions, qcOnly, historical,
+      listedInVersion: listed.has(versionId),
       version: { id: version.id, name: version.name, goLive, daysToGoLive },
       light,
       defects: { testing: testingDefects, afterGoLive, blocking },
@@ -2872,7 +2901,7 @@ export class ReleaseIntelligenceService {
       },
       uat,
       testSummary: { finished, text: summary },
-      plan: { status: planStatus, teams: planTeams },
+      plan: { status: planStatus, teams: historical ? [] : planTeams },
       dependencies: {
         dependsOn: dependsOn.map(d => ({ ...d, ...relState(d.crNumber) })),
         dependedBy: dependedBy.map(d => ({ ...d, ...relState(d.crNumber) })),
