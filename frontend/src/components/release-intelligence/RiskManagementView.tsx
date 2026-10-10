@@ -8,6 +8,7 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 interface Risk {
   id: string; title: string; severity: string; probability: string | null;
   impact: string | null; mitigation: string | null; status: string;
+  crNumber: string | null;
   createdAt: string;
 }
 
@@ -51,9 +52,9 @@ interface Props { token: string; versionId?: string; role: string; }
 
 interface Draft {
   title: string; severity: string; probability: string;
-  impact: string; impactOther: string; mitigation: string; status: string;
+  impact: string; impactOther: string; mitigation: string; status: string; crNumber: string;
 }
-const EMPTY_DRAFT: Draft = { title: '', severity: 'MEDIUM', probability: 'MEDIUM', impact: IMPACT_OPTIONS[0], impactOther: '', mitigation: '', status: 'OPEN' };
+const EMPTY_DRAFT: Draft = { title: '', severity: 'MEDIUM', probability: 'MEDIUM', impact: IMPACT_OPTIONS[0], impactOther: '', mitigation: '', status: 'OPEN', crNumber: '' };
 
 function toDraft(r: Risk): Draft {
   const isCustomImpact = !!r.impact && !IMPACT_OPTIONS.includes(r.impact);
@@ -61,7 +62,7 @@ function toDraft(r: Risk): Draft {
     title: r.title, severity: r.severity, probability: r.probability ?? 'MEDIUM',
     impact: isCustomImpact ? IMPACT_OTHER : (r.impact ?? IMPACT_OPTIONS[0]),
     impactOther: isCustomImpact ? (r.impact as string) : '',
-    mitigation: r.mitigation ?? '', status: r.status,
+    mitigation: r.mitigation ?? '', status: r.status, crNumber: r.crNumber ?? '',
   };
 }
 
@@ -79,6 +80,14 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
+  // the version's CRs — a risk may name the CR it is about (shown on the CR card, 2026-10-10)
+  const [crs, setCrs] = useState<{ crNumber: string; crLabel: string }[]>([]);
+  useEffect(() => {
+    if (!versionId) { setCrs([]); return; }
+    axios.get(`${API}/release-intelligence/version-crs/${versionId}`, { headers }).then(r => setCrs(r.data ?? [])).catch(() => setCrs([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [versionId, token]);
+  const crText = (n: string | null) => { if (!n) return '—'; const c = crs.find(x => x.crNumber === n); return c?.crLabel ? `${n} · ${c.crLabel}` : n; };
 
   const canWrite = RISK_WRITERS.includes(role);
   const canClose = RISK_CLOSERS.includes(role);
@@ -104,6 +113,7 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
     const payload = {
       title: draft.title.trim(), severity: draft.severity, probability: draft.probability,
       impact: impact || null, mitigation: draft.mitigation.trim() || null, status: draft.status,
+      crNumber: draft.crNumber || null,
     };
     setSaving(true);
     try {
@@ -131,6 +141,12 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
       <td className={tdClass}>
         <textarea autoFocus value={draft.title} onChange={e => setDraft(d => ({ ...d, title: e.target.value }))}
           placeholder="תיאור הסיכון…" rows={2} className={cn(inputClass, 'min-w-[220px] resize-y')} />
+      </td>
+      <td className={tdClass}>
+        <select value={draft.crNumber} onChange={e => setDraft(d => ({ ...d, crNumber: e.target.value }))} className={cn(inputClass, 'min-w-[140px]')}>
+          <option value="">— כל הגרסה —</option>
+          {crs.map(c => <option key={c.crNumber} value={c.crNumber}>{c.crNumber}{c.crLabel ? ` · ${c.crLabel}` : ''}</option>)}
+        </select>
       </td>
       <td className={tdClass}>
         <select value={draft.severity} onChange={e => setDraft(d => ({ ...d, severity: e.target.value }))} className={inputClass}>
@@ -195,6 +211,7 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
           <thead>
             <tr>
               <th className={thClass}>תיאור הסיכון</th>
+              <th className={thClass}>CR</th>
               <th className={thClass}>חומרה</th>
               <th className={thClass}>סבירות</th>
               <th className={thClass}>השפעה</th>
@@ -206,13 +223,14 @@ export const RiskManagementView: React.FC<Props> = ({ token, versionId, role }) 
           <tbody>
             {adding && renderForm(true)}
             {!loading && risks.length === 0 && !adding && (
-              <tr><td colSpan={7} className={cn(tdClass, 'p-5 text-center text-subtle-foreground')}>אין סיכונים רשומים לגרסה זו.</td></tr>
+              <tr><td colSpan={8} className={cn(tdClass, 'p-5 text-center text-subtle-foreground')}>אין סיכונים רשומים לגרסה זו.</td></tr>
             )}
             {risks.map(r => editingId === r.id ? (
               <React.Fragment key={r.id}>{renderForm(false)}</React.Fragment>
             ) : (
               <tr key={r.id}>
                 <td className={cn(tdClass, 'min-w-[220px] whitespace-pre-wrap')}>{r.title}</td>
+                <td className={cn(tdClass, 'max-w-[200px] truncate')} title={crText(r.crNumber)}>{crText(r.crNumber)}</td>
                 <td className={tdClass}>
                   <span className="font-semibold" style={{ color: SEVERITY_COLOR[r.severity] ?? C.textMuted }}>{SEVERITY_LABEL[r.severity] ?? r.severity}</span>
                 </td>

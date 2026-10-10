@@ -1114,12 +1114,15 @@ model ReleaseRisk {
   owner       String?
   mitigation  String?
   status      RiskStatus @default(OPEN)
+  crNumber    String? // the CR this risk is about (optional) — shown on the CR card (2026-10-10)
   createdBy   String
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 
   version Version @relation(fields: [versionId], references: [id], onDelete: Cascade)
   creator User    @relation(fields: [createdBy], references: [id])
+
+  @@index([versionId, crNumber])
 }
 
 enum SuggestedRiskStatus {

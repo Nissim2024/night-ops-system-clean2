@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaClient } from '@prisma/client';
 import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope, isProductionEnvironment } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
+import { Cr360Defect, Cr360PlanTeam, isOpenStatus, testsFinished, planStateOf, planOverall, crTrafficLight } from './cr-360';
 
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
@@ -2703,6 +2704,183 @@ export class ReleaseIntelligenceService {
     });
   }
 
+
+  // ── CR card: the full picture of one CR in one version (2026-10-10) ────────
+  // See cr-360.ts. versionId missing / not one of the CR's → its latest version.
+  async getCr360(crNumber: string, versionIdArg?: string) {
+    const cr = String(crNumber ?? '').trim();
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { crNumber: cr, syncStatus: { not: 'REMOVED' } },
+      select: {
+        versionId: true, crLabel: true, isArchived: true,
+        team: { select: { name: true, requiresPlan: true } },
+        version: { select: { id: true, name: true, plannedStart: true, createdAt: true, isArchived: true,
+          integrationStart: true, integrationEnd: true, qaStart: true, qaEnd: true, plannedRehearsalStart: true, plannedRehearsalEnd: true } },
+      },
+    });
+    const byVersion = new Map<string, (typeof rows)[number]['version']>();
+    for (const r of rows) byVersion.set(r.versionId, r.version);
+    const versions = Array.from(byVersion.values())
+      .sort((a, b) => (b.plannedStart ?? b.createdAt).getTime() - (a.plannedStart ?? a.createdAt).getTime())
+      .map(v => ({ id: v.id, name: v.name, goLive: v.plannedStart, archived: v.isArchived }));
+    if (versions.length === 0) return { crNumber: cr, crLabel: '', versions: [], versionId: null };
+    const versionId = versionIdArg && byVersion.has(versionIdArg) ? versionIdArg : versions[0].id;
+    const version = byVersion.get(versionId)!;
+    const vRows = rows.filter(r => r.versionId === versionId);
+    const crLabel = vRows.find(r => r.crLabel)?.crLabel ?? rows.find(r => r.crLabel)?.crLabel ?? '';
+
+    const [allDefects, coverage, daily, plans, blockers, risks, qaAssign, cycles, summary, dependents] = await Promise.all([
+      this.qcService.getDefects(versionId).catch((): DefectDto[] => []),
+      this.qcService.getCrCoverage([cr], versionId).catch((): CrCoverageDto[] => []),
+      this.getDailyQaManagement(versionId).catch(() => null),
+      prisma.crPlan.findMany({
+        where: { versionId, crNumber: cr, removedByTeam: false },
+        include: { team: { select: { name: true } }, actions: { orderBy: { orderIndex: 'asc' } }, monitoringPoints: { orderBy: { orderIndex: 'asc' } }, crDeps: true },
+      }),
+      prisma.dailyBlocker.findMany({ where: { versionId, crNumber: cr }, orderBy: { createdAt: 'desc' } }),
+      prisma.releaseRisk.findMany({ where: { versionId, crNumber: cr }, orderBy: { createdAt: 'desc' } }),
+      prisma.qaAssignment.findMany({ where: { versionId, crNumber: cr }, select: { cycles: true, user: { select: { fullName: true } } } }),
+      prisma.qaCycle.findMany({
+        where: { workPlan: { versionId } }, orderBy: { plannedStart: 'asc' },
+        select: { cycleType: true, plannedStart: true, plannedEnd: true,
+          tasks: { where: { crNumber: cr, isArchived: false }, select: { plannedStart: true, plannedEnd: true, user: { select: { fullName: true } } } } },
+      }),
+      this.qcService.getCrTestSummary(cr, versionId).catch(() => null),
+      prisma.crDependency.findMany({ where: { crPlan: { versionId } }, include: { crPlan: { select: { crNumber: true, team: { select: { name: true } } } } } }),
+    ]);
+
+    // ── defects ──
+    const toRow = (d: DefectDto): Cr360Defect => ({
+      id: String(d.id), title: d.title ?? '', severity: d.severity ?? '', status: d.status ?? '', open: isOpenStatus(d.status ?? ''),
+      defectType: d.defectType ?? '', cycle: d.detectedInCycle ?? '', detectedOn: d.discoveryDate ?? '', isProd: isProductionEnvironment(d.environment),
+    });
+    const crDefects = allDefects.filter(d => isDefectOfCr(d, cr)).map(toRow);
+    const testingDefects = crDefects.filter(d => !d.isProd);
+    const goLive = version.plannedStart;
+    const afterGoLive = crDefects.filter(d => d.isProd && (!goLive || !d.detectedOn || new Date(d.detectedOn) >= goLive));
+    const SEV_RANK: Record<string, number> = { 'Show Stopper': 0, Severe: 1, Medium: 2, Low: 3 };
+    const blocking = testingDefects.filter(d => d.open && (d.severity === 'Show Stopper' || d.severity === 'Severe'))
+      .sort((a, b) => (SEV_RANK[a.severity] ?? 9) - (SEV_RANK[b.severity] ?? 9) || (a.detectedOn || '').localeCompare(b.detectedOn || ''));
+
+    // ── coverage ──
+    const cov = coverage.map(c => ({
+      cycleName: c.cycleName, passed: c.passed, failed: c.failed, blocked: c.blocked, notRun: c.notRun, notCompleted: c.notCompleted,
+      notReady: c.notReady, total: c.total, responsible: c.responsible,
+      executedPct: c.total ? Math.round((executedScriptCount(c) / c.total) * 100) : 0,
+    }));
+    const finished = testsFinished(cov);
+
+    // ── UAT (user tests) ──
+    const uatCov = cov.filter(c => /uat/i.test(c.cycleName));
+    const uatTesters = Array.from(new Set([
+      ...qaAssign.filter(a => a.cycles.includes('UAT')).map(a => a.user?.fullName ?? '').filter(Boolean),
+      ...uatCov.flatMap(c => (c.responsible || '').split(' + ')).map(s => s.trim()).filter(Boolean),
+    ]));
+    const uatDefects = testingDefects.filter(d => /uat/i.test(d.cycle));
+    const uatCycle = cycles.find(c => /uat/i.test(c.cycleType));
+    const uat = {
+      planned: uatCov.length > 0 || uatTesters.length > 0 || !!uatCycle?.tasks.length,
+      done: uatCov.length > 0 && testsFinished(uatCov),
+      coverage: uatCov, testers: uatTesters, defects: uatDefects,
+      window: uatCycle ? { start: uatCycle.plannedStart, end: uatCycle.plannedEnd } : null,
+    };
+
+    // ── risks ──
+    const dailyCr = (daily?.crs ?? []).find((c: any) => c.crNumber === cr) ?? null;
+    const planRisks = plans.filter(p => p.riskLevel).map(p => ({ team: p.team.name, level: p.riskLevel! }));
+
+    // ── deployment plan ──
+    const expectedTeams = Array.from(new Set(vRows.filter(r => !r.isArchived && r.team.requiresPlan).map(r => r.team.name)));
+    for (const p of plans) if (!expectedTeams.includes(p.team.name)) expectedTeams.push(p.team.name);
+    const planTeams: Cr360PlanTeam[] = expectedTeams.map(team => {
+      const p = plans.find(x => x.team.name === team);
+      const state = planStateOf(p as any);
+      return {
+        team, state, submittedBy: p?.submittedByName ?? null, approvedBy: p?.approvedByName ?? null, returnReason: p?.returnReason ?? null,
+        riskLevel: p?.riskLevel ?? null,
+        plan: !p || state === 'not-started' ? null : {
+          workPlan: p.workPlan, scripts: p.scripts, runTimes: p.runTimes, rollbackPlan: p.rollbackPlan,
+          gradualRollout: p.gradualRollout, gradualDetails: p.gradualDetails, nightTestingNotes: p.nightTestingNotes, morningMonitoring: p.morningMonitoring,
+          actions: p.actions.map(a => ({ description: a.description, phase: a.phase, system: a.system, ownerName: a.ownerName })),
+          monitoring: p.monitoringPoints.map(m => ({ type: m.type, name: m.name, note: m.note })),
+        },
+      };
+    });
+    const planStatus = planOverall(planTeams);
+
+    // ── dependencies (both directions), with each related CR's state ──
+    const crNo = (v: string) => /^\s*(\d+)/.exec(v ?? '')?.[1] ?? (v ?? '').trim();
+    const dependsOn = plans.flatMap(p => p.crDeps.map(d => ({ crNumber: crNo(d.dependsOnCr), note: d.note, team: p.team.name })));
+    const dependedBy = dependents.filter(d => crNo(d.dependsOnCr) === cr && d.crPlan.crNumber !== cr)
+      .map(d => ({ crNumber: d.crPlan.crNumber, note: d.note, team: d.crPlan.team.name }));
+    const related = Array.from(new Set([...dependsOn, ...dependedBy].map(d => d.crNumber).filter(Boolean)));
+    const [relCov, relLabels] = await Promise.all([
+      related.length ? this.qcService.getCrCoverage(related, versionId).catch((): CrCoverageDto[] => []) : Promise.resolve([] as CrCoverageDto[]),
+      related.length ? prisma.versionCrAssignment.findMany({ where: { versionId, crNumber: { in: related } }, select: { crNumber: true, crLabel: true } }) : Promise.resolve([] as { crNumber: string; crLabel: string | null }[]),
+    ]);
+    const relState = (n: string) => {
+      const c = relCov.filter(x => x.crNumber === n);
+      const total = c.reduce((s, x) => s + x.total, 0);
+      return {
+        crLabel: relLabels.find(x => x.crNumber === n)?.crLabel ?? '',
+        inVersion: relLabels.some(x => x.crNumber === n),
+        executedPct: total ? Math.round((c.reduce((s, x) => s + executedScriptCount(x), 0) / total) * 100) : null,
+        testsFinished: testsFinished(c),
+        openDefectIds: allDefects.filter(d => isDefectOfCr(d, n) && isOpenStatus(d.status ?? '') && !isProductionEnvironment(d.environment)).map(d => String(d.id)),
+      };
+    };
+
+    // ── timeline ──
+    const timeline = [
+      { key: 'integration', label: 'בדיקות אינטגרציה', start: version.integrationStart, end: version.integrationEnd, mine: null as null | { start: Date; end: Date; tester: string } },
+      // the QA cycles (rehearsal / go-live come from the version itself, below)
+      ...cycles.filter(c => c.cycleType !== 'REHEARSAL' && c.cycleType !== 'GO_LIVE').map(c => {
+        const t = c.tasks[0];
+        const label = ({ CYCLE_1: 'סבב 1', CYCLE_2: 'סבב 2', CYCLE_3: 'סבב 3', STAND_ALONE: 'Stand Alone', UAT: 'בדיקות משתמשים (UAT)' } as Record<string, string>)[c.cycleType] ?? c.cycleType;
+        return { key: c.cycleType, label, start: c.plannedStart, end: c.plannedEnd,
+          mine: t ? { start: t.plannedStart, end: t.plannedEnd, tester: c.tasks.map(x => x.user?.fullName).filter(Boolean).join(', ') } : null };
+      }),
+      { key: 'rehearsal', label: 'חזרה גנרלית', start: version.plannedRehearsalStart, end: version.plannedRehearsalEnd, mine: null },
+      { key: 'golive', label: 'עלייה לאוויר', start: version.plannedStart, end: null, mine: null },
+    ].filter(x => x.start);
+
+    // ── traffic light ──
+    const daysToGoLive = goLive ? Math.ceil((goLive.getTime() - Date.now()) / 86400000) : null;
+    const openBlockers = blockers.filter(b => b.status === 'OPEN');
+    const light = crTrafficLight({
+      openShowStopper: testingDefects.filter(d => d.open && d.severity === 'Show Stopper').length,
+      openSevere: testingDefects.filter(d => d.open && d.severity === 'Severe').length,
+      dailyRisk: dailyCr?.risk ?? null,
+      testsFinished: finished, hasTests: cov.some(c => c.total > 0), failedTests: cov.reduce((s, c) => s + c.failed, 0),
+      plan: planStatus, openBlockers: openBlockers.length,
+      highManualRisks: risks.filter(r => r.status !== 'CLOSED' && (r.severity === 'HIGH' || r.severity === 'CRITICAL')).length,
+      uatPlanned: uat.planned, uatDone: uat.done,
+      daysToGoLive: daysToGoLive != null && daysToGoLive >= 0 ? daysToGoLive : null,
+    });
+
+    return {
+      crNumber: cr, crLabel, versionId, versions,
+      version: { id: version.id, name: version.name, goLive, daysToGoLive },
+      light,
+      defects: { testing: testingDefects, afterGoLive, blocking },
+      coverage: { cycles: cov, finished },
+      risks: {
+        daily: dailyCr ? { risk: dailyCr.risk, reasons: dailyCr.reasons, progressPct: dailyCr.progressPct, tester: dailyCr.tester } : null,
+        plans: planRisks,
+        blockers: blockers.map(b => ({ id: b.id, title: b.title, type: b.type, owner: b.ownerName, status: b.status, createdAt: b.createdAt })),
+        manual: risks.map(r => ({ id: r.id, title: r.title, severity: r.severity, probability: r.probability, impact: r.impact, mitigation: r.mitigation, status: r.status, owner: r.owner })),
+      },
+      uat,
+      testSummary: { finished, text: summary },
+      plan: { status: planStatus, teams: planTeams },
+      dependencies: {
+        dependsOn: dependsOn.map(d => ({ ...d, ...relState(d.crNumber) })),
+        dependedBy: dependedBy.map(d => ({ ...d, ...relState(d.crNumber) })),
+      },
+      timeline,
+    };
+  }
+
   // ── Risk CRUD — spec section 23 ─────────────────────────────────────────────
   listRisks(versionId: string) {
     return prisma.releaseRisk.findMany({ where: { versionId }, orderBy: { createdAt: 'desc' } });
@@ -2710,17 +2888,30 @@ export class ReleaseIntelligenceService {
 
   createRisk(data: {
     versionId: string; title: string; description?: string; severity?: string;
-    impact?: string; probability?: string; owner?: string; mitigation?: string; createdBy: string;
+    impact?: string; probability?: string; owner?: string; mitigation?: string; crNumber?: string | null; createdBy: string;
   }) {
     if (!data.title?.trim()) throw new BadRequestException('כותרת סיכון היא שדה חובה');
-    return prisma.releaseRisk.create({ data: data as any });
+    return prisma.releaseRisk.create({ data: { ...data, crNumber: data.crNumber?.trim() || null } as any });
   }
 
   updateRisk(id: string, data: Partial<{
     title: string; description: string; severity: string; impact: string;
-    probability: string; owner: string; mitigation: string; status: string;
+    probability: string; owner: string; mitigation: string; status: string; crNumber: string | null;
   }>) {
-    return prisma.releaseRisk.update({ where: { id }, data: data as any });
+    const patch: any = { ...data };
+    if ('crNumber' in patch) patch.crNumber = patch.crNumber?.trim() || null;
+    return prisma.releaseRisk.update({ where: { id }, data: patch });
+  }
+
+  // CRs of a version, for the risk form's "CR" picker (2026-10-10)
+  async listVersionCrs(versionId: string): Promise<{ crNumber: string; crLabel: string }[]> {
+    const rows = await prisma.versionCrAssignment.findMany({
+      where: { versionId, syncStatus: { not: 'REMOVED' } },
+      select: { crNumber: true, crLabel: true }, orderBy: { crNumber: 'asc' },
+    });
+    const seen = new Map<string, string>();
+    for (const r of rows) if (!seen.has(r.crNumber)) seen.set(r.crNumber, r.crLabel ?? '');
+    return Array.from(seen, ([crNumber, crLabel]) => ({ crNumber, crLabel }));
   }
 
   closeRisk(id: string) {

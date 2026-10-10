@@ -186,6 +186,18 @@ export class ReleaseIntelligenceController {
     return this.service.listRisks(versionId);
   }
 
+  // CR card — full picture of a CR (CR search, also on the home page) (2026-10-10)
+  @ModuleAccess()
+  @Get('cr-360/:crNumber')
+  getCr360(@Param('crNumber') crNumber: string, @Query('versionId') versionId?: string) {
+    return this.service.getCr360(crNumber, versionId);
+  }
+
+  @Get('version-crs/:versionId')
+  listVersionCrs(@Param('versionId') versionId: string) {
+    return this.service.listVersionCrs(versionId);
+  }
+
   @Post('risks')
   createRisk(@Body() body: any, @Request() req: any) {
     requireRole(req, RISK_WRITERS);

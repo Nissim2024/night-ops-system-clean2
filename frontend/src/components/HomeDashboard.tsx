@@ -10,6 +10,7 @@ import { formatDate, formatDateTime, formatTime } from '../utils/dateFormat';
 import { DefectIdBadge, SEVERITY_COLOR, hexTint } from './shared/defectFieldDisplay';
 import { useDialog } from '../context/DialogContext';
 import { CAT_LABELS, describeMyActivity, isMyActivity } from './qa/activityBoardShared';
+import { CrSearchView } from './CrSearchView';
 
 const API = process.env.REACT_APP_API_URL ?? 'http://localhost:3000';
 
@@ -437,6 +438,9 @@ export const HomeDashboard: React.FC<Props> = ({
   isQaTeamMember, canAccessVersionManagement, canAccessReleaseIntelligence, canAccessQualityHub, canAccessDefects, onSwitchToModule, onGoToLeaves,
 }) => {
   const dialog = useDialog();
+  // CR search from the home page too (user, 2026-10-10) — opens the full CR card
+  const [crQuery, setCrQuery] = useState('');
+  const [crSearchOpen, setCrSearchOpen] = useState<string | null>(null);
   const canCreate = isRm(role);
   const canManageLeaves = ['ADMIN', 'TEAM_LEAD'].includes(role);
   // TEAM_LEAD gets a blanket screen:qa role permission (for QA-team leads
@@ -1223,6 +1227,15 @@ export const HomeDashboard: React.FC<Props> = ({
           </div>
         </div>
         <div style={{ marginRight: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <form onSubmit={e => { e.preventDefault(); if (crQuery.trim().length >= 2) setCrSearchOpen(crQuery.trim()); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', border: `1px solid ${C.border}`, borderRadius: RADIUS.full, padding: '3px 4px 3px 12px', background: C.bgNested }}>
+            <span style={{ fontSize: '13px' }}>🔎</span>
+            <input value={crQuery} onChange={e => setCrQuery(e.target.value)} placeholder="חיפוש CR — מספר או טקסט"
+              style={{ border: 'none', outline: 'none', background: 'transparent', ...TEXT.sm, width: '190px', color: C.textPrimary, fontFamily: FONT }} />
+            <button type="submit" disabled={crQuery.trim().length < 2}
+              style={{ border: 'none', borderRadius: RADIUS.full, padding: '3px 12px', ...TEXT.xs, fontWeight: WEIGHT.bold, color: '#fff',
+                background: crQuery.trim().length < 2 ? C.textMuted : C.brand, cursor: crQuery.trim().length < 2 ? 'default' : 'pointer' }}>חפש</button>
+          </form>
           {isLiveNow && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', background: 'rgba(240,106,106,0.08)', border: '1px solid rgba(240,106,106,0.25)', borderRadius: RADIUS.full, padding: '4px 12px' }}>
               <div style={{ width: '7px', height: '7px', borderRadius: '50%', background: C.danger, animation: 'home-pulse 1.5s ease-in-out infinite' }} />
@@ -1925,6 +1938,16 @@ export const HomeDashboard: React.FC<Props> = ({
           startInRunMode
           onClose={() => setRunbookItem(null)}
         />
+      )}
+
+      {crSearchOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: C.bgApp, zIndex: 1001, overflow: 'auto', direction: 'rtl' }}>
+          <div style={{ maxWidth: '1500px', margin: '0 auto', padding: '20px 28px' }}>
+            <button onClick={() => setCrSearchOpen(null)}
+              style={{ border: 'none', background: 'transparent', color: C.brand, cursor: 'pointer', ...TEXT.sm, fontWeight: WEIGHT.semibold, marginBottom: '12px', padding: 0 }}>→ חזרה לדף הבית</button>
+            <CrSearchView token={token} versions={versions} initialQuery={crSearchOpen} />
+          </div>
+        </div>
       )}
 
       {homeDefectDetailId && (

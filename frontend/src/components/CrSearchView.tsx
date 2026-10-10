@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { Card, Badge, VersionStageChip } from './ui';
 import { formatDateTime } from '../utils/dateFormat';
 import { DefectDrilldownModal } from './release-intelligence/DefectDrilldownModal';
+import { Cr360Panels, Cr360 } from './Cr360Panels';
 
 const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${window.location.hostname}:3000`;
 
@@ -38,9 +39,20 @@ const EVENT_LABEL: Record<string, string> = {
   SCOPE_ADDED: 'נוסף לתכולה', SCOPE_REMOVED: 'הוסר מהתכולה', ESTIMATE_CHANGED: 'שינוי הערכה', STATUS_CHANGED: 'שינוי סטטוס',
 };
 
-export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ token, versions }) => {
+export const CrSearchView: React.FC<{ token: string; versions: any[]; initialQuery?: string }> = ({ token, versions, initialQuery }) => {
   const headers = { Authorization: `Bearer ${token}` };
-  const [q, setQ] = useState('');
+  const [q, setQ] = useState(initialQuery ?? '');
+  // the CR's full picture in one version (2026-10-10) + drill into any defect list
+  const [c360, setC360] = useState<Cr360 | null>(null);
+  const [loading360, setLoading360] = useState(false);
+  const [idDrill, setIdDrill] = useState<{ title: string; ids: string[] } | null>(null);
+  const load360 = async (crNumber: string, versionId?: string) => {
+    setLoading360(true);
+    try {
+      const r = await axios.get(`${API}/release-intelligence/cr-360/${encodeURIComponent(crNumber)}`, { headers, params: versionId ? { versionId } : undefined });
+      setC360(r.data);
+    } catch { setC360(null); } finally { setLoading360(false); }
+  };
   const [matches, setMatches] = useState<Match[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [card, setCard] = useState<CrCard | null>(null);
@@ -48,8 +60,8 @@ export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ tok
   const [error, setError] = useState<string | null>(null);
   const [drill, setDrill] = useState<{ versionId: string; versionName: string } | null>(null);
 
-  const search = async () => {
-    const query = q.trim();
+  const search = async (override?: string) => {
+    const query = (override ?? q).trim();
     if (query.length < 2) return;
     setSearching(true); setError(null); setCard(null);
     try {
@@ -63,7 +75,8 @@ export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ tok
   };
 
   const openCard = async (crNumber: string) => {
-    setLoadingCard(true); setError(null);
+    setLoadingCard(true); setError(null); setC360(null);
+    load360(crNumber);
     try {
       const r = await axios.get(`${API}/version-cr-assignments/cr-card/${encodeURIComponent(crNumber)}`, { headers });
       setCard(r.data);
@@ -73,6 +86,9 @@ export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ tok
   };
 
   useEffect(() => { setCard(null); }, [token]);
+  // opened from the home page with a query → search right away
+  useEffect(() => { if (initialQuery && initialQuery.trim().length >= 2) search(initialQuery); // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuery]);
 
   return (
     <div className="flex flex-col gap-4">
@@ -87,7 +103,7 @@ export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ tok
             placeholder="מספר CR או טקסט..."
             className="min-w-0 flex-1 rounded-md border border-border bg-card px-3 py-2 text-sm text-foreground"
           />
-          <button onClick={search} disabled={searching || q.trim().length < 2}
+          <button onClick={() => search()} disabled={searching || q.trim().length < 2}
             className={cn('rounded-md border-none px-4 py-2 text-sm font-semibold text-white', searching || q.trim().length < 2 ? 'cursor-not-allowed bg-subtle-foreground' : 'cursor-pointer bg-primary')}>
             {searching ? '⏳ מחפש...' : 'חפש'}
           </button>
@@ -130,7 +146,33 @@ export const CrSearchView: React.FC<{ token: string; versions: any[] }> = ({ tok
       {card && !loadingCard && (
         <CrCardView card={card} versions={versions}
           onBack={matches && matches.length > 1 ? () => setCard(null) : undefined}
-          onDefects={(versionId, versionName) => setDrill({ versionId, versionName })} />
+          onDefects={(versionId, versionName) => setDrill({ versionId, versionName })}>
+          {/* version picker — every panel below follows it */}
+          {c360 && c360.versions.length > 1 && (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm font-semibold text-foreground">גרסה:</span>
+              {c360.versions.map(v => (
+                <button key={v.id} onClick={() => load360(card.crNumber, v.id)}
+                  className={cn('cursor-pointer rounded-full border px-3 py-1 text-xs', c360.versionId === v.id ? 'border-primary bg-primary font-bold text-white' : 'border-border bg-card text-foreground')}>
+                  {v.name}{v.goLive ? ` · ${formatDateTime(v.goLive).split(' ')[0]}` : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          {loading360 && !c360 && <div className="p-4 text-center text-sm text-subtle-foreground">טוען את תמונת ה-CR…</div>}
+          {c360 && (
+            <div style={{ opacity: loading360 ? 0.5 : 1 }}>
+              <Cr360Panels data={c360}
+                onDrill={(title, ids) => setIdDrill({ title, ids })}
+                onOpenCr={n => { setQ(n); setMatches(null); openCard(n); window.scrollTo({ top: 0, behavior: 'smooth' }); }} />
+            </div>
+          )}
+        </CrCardView>
+      )}
+
+      {idDrill && (
+        <DefectDrilldownModal token={token} screen="cycle-progress" filter="__ids__" value="" title={idDrill.title}
+          idList={idDrill.ids} onClose={() => setIdDrill(null)} />
       )}
 
       {drill && card && (
@@ -148,7 +190,7 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({ label, 
   </div>
 );
 
-const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void; onDefects: (versionId: string, versionName: string) => void }> = ({ card, versions, onBack, onDefects }) => {
+const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void; onDefects: (versionId: string, versionName: string) => void; children?: React.ReactNode }> = ({ card, versions, onBack, onDefects, children }) => {
   const maxEffort = Math.max(1, ...card.teamEfforts.map(t => t.days));
   const teamSum = card.teamEfforts.reduce((s, t) => s + t.days, 0);
   return (
@@ -178,6 +220,8 @@ const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void;
         )}
       </Card>
 
+      {children}
+
       <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))' }}>
         <Card padding={4}>
           <div className="mb-3 flex items-center justify-between">
@@ -200,14 +244,16 @@ const CrCardView: React.FC<{ card: CrCard; versions: any[]; onBack?: () => void;
         </Card>
 
         <Card padding={4}>
-          <div className="mb-3 text-sm font-semibold text-foreground">שדות נוספים מהקובץ</div>
+          <div className="mb-3 text-sm font-semibold text-foreground">📄 נתונים נוספים</div>
           {card.otherFields.length === 0 ? <div className="text-xs text-subtle-foreground">—</div> : (
-            <div className="grid gap-x-4 gap-y-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))' }}>
+            // one row per field: the full label beside its full value (both wrap — nothing cut)
+            <div className="grid text-[13px]" style={{ gridTemplateColumns: 'minmax(110px, max-content) 1fr', columnGap: 16 }}>
               {card.otherFields.map(f => (
-                <div key={f.label} className="min-w-0">
-                  <div className="truncate text-xs text-subtle-foreground" title={f.label}>{f.label}</div>
-                  <div className="truncate text-[13px] text-foreground" dir="auto" title={f.value}>{f.value}</div>
-                </div>
+                <React.Fragment key={f.label}>
+                  <div className="border-t border-border py-1.5 text-xs font-semibold text-subtle-foreground" dir="auto">{f.label}</div>
+                  {/* right-aligned next to its label even when the value is English / a date */}
+                  <div className="whitespace-pre-wrap break-words border-t border-border py-1.5 text-right text-foreground"><span dir="auto">{f.value || '—'}</span></div>
+                </React.Fragment>
               ))}
             </div>
           )}
