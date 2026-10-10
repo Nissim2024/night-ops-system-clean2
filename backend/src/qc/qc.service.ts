@@ -3151,6 +3151,7 @@ interface AnalyticsRawRow {
   DETECTED_ON_DATE: string | Date | null;
   MODIFIED: string | Date | null;
   CLOSED_AT?: string | Date | null;
+  [extra: `X_${number}`]: string | null | undefined;   // the "הצג לפי" fields an admin added (X_<i> = extra field i)
 }
 
 const ANALYTICS_CLOSED_STATUSES = ['closed', 'canceled', 'cancelled'];
@@ -3176,7 +3177,71 @@ export interface DefectsAnalyticsDto {
   detected: (number | null)[];
   closed: (number | null)[];
   updated: (number | null)[];
+  // "הצג לפי" values an admin added (2026-10-10): per QC field key, an index into extraDict[field]
+  extra: Record<string, number[]>;
+  extraDict: Record<string, string[]>;
 }
+
+// ── "הצג לפי" list of the defects dashboard (user, 2026-10-10) ────────────
+// Admin-managed: rename / hide / reorder the built-in values and add any QC
+// defect field as a value. Stored as one list; a hidden value stays loaded
+// so a pinned chart that uses it keeps working.
+export const DEFECT_DIM_BUILTIN_KEYS = ['status', 'severity', 'team', 'system', 'module', 'release', 'creator', 'owner', 'openMonth', 'closeMonth', 'age'];
+export interface DefectDimItem { key: string; label: string; hidden?: boolean }
+const DEFECT_DIMS_KEY = 'DEFECTS_DASHBOARD_DIMS';
+const DIM_FIELD_KINDS = new Set(['list', 'person', 'text', 'number']);
+const MAX_ADDED_DIMS = 25;
+// CR fields hold "13083 - name": grouped by the CR number (one CR, one value)
+const CR_DIM_FIELDS = new Set(['crHbrNumberReference', 'crReferenceNumber']);
+export function defectDimFieldOptions(): { key: string; label: string; kind: string }[] {
+  return Object.entries(QC_DEFECT_FIELDS)
+    .filter(([, d]) => DIM_FIELD_KINDS.has(d.kind))
+    .map(([key, d]) => ({ key, label: d.label, kind: d.kind }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+export async function readDefectDims(): Promise<DefectDimItem[] | null> {
+  const row = await prisma.systemParam.findUnique({ where: { key: DEFECT_DIMS_KEY } });
+  if (!row?.value) return null;
+  try { const v = JSON.parse(row.value); return Array.isArray(v?.dims) ? v.dims : null; } catch { return null; }
+}
+export function cleanDefectDims(raw: any): DefectDimItem[] {
+  const out: DefectDimItem[] = [];
+  const seen = new Set<string>();
+  let added = 0;
+  for (const it of Array.isArray(raw) ? raw : []) {
+    const key = String(it?.key ?? '');
+    if (seen.has(key)) continue;
+    const isBuiltin = DEFECT_DIM_BUILTIN_KEYS.includes(key);
+    const field = key.startsWith('f:') ? key.slice(2) : '';
+    const isField = !!field && !!QC_DEFECT_FIELDS[field] && DIM_FIELD_KINDS.has(QC_DEFECT_FIELDS[field].kind);
+    if (!isBuiltin && !isField) continue;
+    if (isField && ++added > MAX_ADDED_DIMS) continue;
+    const label = String(it?.label ?? '').trim().slice(0, 40) || (isField ? QC_DEFECT_FIELDS[field].label : key);
+    out.push({ key, label, ...(it?.hidden ? { hidden: true } : {}) });
+    seen.add(key);
+  }
+  // a built-in value can be hidden, never lost
+  for (const k of DEFECT_DIM_BUILTIN_KEYS) if (!seen.has(k)) out.push({ key: k, label: k, hidden: true });
+  return out;
+}
+// the QC fields the analytics rows must carry (hidden ones too — pinned charts)
+async function analyticsExtraFields(): Promise<string[]> {
+  const dims = await readDefectDims().catch(() => null);
+  return (dims ?? []).filter(d => d.key.startsWith('f:')).map(d => d.key.slice(2)).filter(f => !!QC_DEFECT_FIELDS[f]);
+}
+export function analyticsSqlWith(extra: string[]): string {
+  if (!extra.length) return DEFECTS_ANALYTICS_SQL;
+  // columns only from the field registry, never from the request
+  const cols = extra.map((f, i) => {
+    const c = QC_DEFECT_FIELDS[f]?.column ?? '';
+    return /^BG_[A-Z0-9_]+$/.test(c) ? `,\n    BUG.${c} AS X_${i}` : `,\n    NULL AS X_${i}`;
+  }).join('');
+  return DEFECTS_ANALYTICS_SQL.replace(/\n\s*FROM BUG\b/, `${cols}\n  FROM BUG`);
+}
+// dev: the real export is keyed by the QC label in capitals ("CR/HBR Number reference" → CR_HBR_NUMBER_REFERENCE)
+const SEED_KEY_OVERRIDES: Record<string, string> = { defectType: 'DEFECT_TYPE', reproducible: 'REPRODUCIBLE_Y_N', status: 'DEFECT_STATUS' };
+const seedKeyOf = (field: string) => SEED_KEY_OVERRIDES[field]
+  ?? (QC_DEFECT_FIELDS[field]?.label ?? field).toUpperCase().replace(/[^A-Z0-9#]+/g, '_').replace(/^_+|_+$/g, '');
 
 const toDayNum = (v: string | Date | null | undefined): number | null => {
   if (v == null || v === '') return null;
@@ -3185,7 +3250,7 @@ const toDayNum = (v: string | Date | null | undefined): number | null => {
   return isNaN(t) ? null : Math.floor(t / 86400000);
 };
 
-function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: string) => string, mock: boolean): DefectsAnalyticsDto {
+export function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: string) => string, mock: boolean, extraFields: string[] = []): DefectsAnalyticsDto {
   const dicts: Record<keyof DefectsAnalyticsDto['dict'], Map<string, number>> = {
     status: new Map(), severity: new Map(), team: new Map(), system: new Map(), module: new Map(), release: new Map(), person: new Map(), env: new Map(),
   };
@@ -3201,7 +3266,23 @@ function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: str
     generatedAt: new Date().toISOString(), mock, closeDate: { fromHistory: 0, fallback: 0 },
     dict: { status: [], severity: [], team: [], system: [], module: [], release: [], person: [], env: [] },
     id: [], env: [], status: [], severity: [], teams: [], system: [], module: [], release: [], owner: [], creator: [], detected: [], closed: [], updated: [],
+    extra: {}, extraDict: {},
   };
+  // added "הצג לפי" fields: own dictionaries; people → full name; a CR → its number
+  const extraMaps = extraFields.map(() => new Map<string, number>());
+  const extraLabels = extraFields.map(() => [] as string[]);
+  const encExtra = (fi: number, raw: string | null | undefined): number => {
+    let v = String(raw ?? '').trim();
+    if (!v) return -1;
+    const field = extraFields[fi];
+    if (QC_DEFECT_FIELDS[field]?.kind === 'person') v = personName(v);
+    const crNo = CR_DIM_FIELDS.has(field) ? /^\s*(\d+)/.exec(v)?.[1] : undefined;
+    const key = crNo ?? v;
+    let i = extraMaps[fi].get(key);
+    if (i === undefined) { i = extraMaps[fi].size; extraMaps[fi].set(key, i); extraLabels[fi].push(v); }
+    return i;
+  };
+  extraFields.forEach(f => { out.extra[f] = []; });
   for (const r of rows) {
     out.id.push(Number(r.DEFECT_ID));
     out.status.push(enc('status', r.DEFECT_STATUS));
@@ -3225,19 +3306,23 @@ function encodeDefectsAnalytics(rows: AnalyticsRawRow[], personName: (login: str
       else { closed = updated; out.closeDate.fallback++; }   // no history row → last-modified as best proxy
     }
     out.closed.push(closed);
+    extraFields.forEach((f, fi) => { out.extra[f].push(encExtra(fi, r[`X_${fi}`])); });
   }
   for (const k of Object.keys(dicts) as (keyof DefectsAnalyticsDto['dict'])[]) {
     out.dict[k] = Array.from(dicts[k].keys());
   }
+  extraFields.forEach((f, fi) => { out.extraDict[f] = extraLabels[fi]; });
   return out;
 }
 
 // Dev-mode fixture: ~600 deterministic defects over 21 months, so trend,
 // aging, heat map and top-10 have something meaningful to show.
-function buildMockAnalyticsRows(): AnalyticsRawRow[] {
+function buildMockAnalyticsRows(extra: string[] = []): AnalyticsRawRow[] {
   const real = loadRealAllBugs();
   if (real) {
+    const seedKeys = extra.map(seedKeyOf);
     return real.map(r => ({
+      ...Object.fromEntries(seedKeys.map((k, i) => [`X_${i}`, r[k] ?? null])),
       DEFECT_ID: r.DEFECT_ID, DEFECT_STATUS: r.DEFECT_STATUS ?? null, SEVERITY: r.SEVERITY ?? null,
       RESPONSIBILITY: r.RESPONSIBILITY ?? null, SYSTEM_NAME: r.ENVIRONMENT_COMPONNENT ?? null, SUB_MODULE: r.SUB_MODULE ?? null,
       ENVIRONMENT: r.ENVIRONMENT ?? null, ASSIGNED_TO: r.ASSIGNED_TO ?? null, DETECTED_BY: r.DETECTED_BY ?? null,
@@ -3292,8 +3377,8 @@ function buildMockAnalyticsRows(): AnalyticsRawRow[] {
 }
 
 // per QC project (key '' = the default project) — 2026-10-09
-const analyticsCaches = new Map<string, { at: number; rows: AnalyticsRawRow[]; mock: boolean }>();
-const analyticsLoadings = new Map<string, Promise<{ rows: AnalyticsRawRow[]; mock: boolean }>>();
+const analyticsCaches = new Map<string, { at: number; rows: AnalyticsRawRow[]; mock: boolean; extra: string[] }>();
+const analyticsLoadings = new Map<string, Promise<{ rows: AnalyticsRawRow[]; mock: boolean; extra: string[] }>>();
 const ANALYTICS_CACHE_MS = 10 * 60 * 1000;
 
 // SLA — not defined yet (user, 2026-10-06: "להכין משהו שיתמוך בזה בעתיד").
@@ -4950,8 +5035,13 @@ export class QcService implements OnApplicationBootstrap {
   // refresh replaces it — nobody waits on the full scan except the very first
   // load after a restart (and the warm-up below takes that one too). "force"
   // (the refresh button) waits for fresh rows, still shared by all callers.
-  private async loadAnalyticsRows(force = false): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
-    const analyticsCache = analyticsCaches.get(currentQcProjectKey() ?? '');
+  private async loadAnalyticsRows(force = false): Promise<{ rows: AnalyticsRawRow[]; mock: boolean; extra: string[] }> {
+    let analyticsCache = analyticsCaches.get(currentQcProjectKey() ?? '');
+    // the "הצג לפי" fields changed since this scan → it can't serve them
+    if (analyticsCache && analyticsCache.extra.join('|') !== (await analyticsExtraFields()).join('|')) {
+      analyticsCaches.delete(currentQcProjectKey() ?? '');
+      analyticsCache = undefined;
+    }
     const fresh = analyticsCache && Date.now() - analyticsCache.at < ANALYTICS_CACHE_MS;
     if (!force && fresh) return analyticsCache!;
     if (!force && analyticsCache) {
@@ -4961,7 +5051,7 @@ export class QcService implements OnApplicationBootstrap {
     return this.refreshAnalyticsRows();
   }
 
-  private refreshAnalyticsRows(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
+  private refreshAnalyticsRows(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean; extra: string[] }> {
     const k = currentQcProjectKey() ?? '';
     let loading = analyticsLoadings.get(k);
     if (!loading) {
@@ -4981,10 +5071,11 @@ export class QcService implements OnApplicationBootstrap {
     }, 20_000);
   }
 
-  private async loadAnalyticsRowsFromDb(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean }> {
+  private async loadAnalyticsRowsFromDb(): Promise<{ rows: AnalyticsRawRow[]; mock: boolean; extra: string[] }> {
     const { enabled } = await getOracleConfig();
+    const extra = await analyticsExtraFields();
     if (!enabled) {
-      const c = { at: Date.now(), rows: buildMockAnalyticsRows(), mock: true };
+      const c = { at: Date.now(), rows: buildMockAnalyticsRows(extra), mock: true, extra };
       analyticsCaches.set(currentQcProjectKey() ?? '', c);
       return c;
     }
@@ -4994,7 +5085,7 @@ export class QcService implements OnApplicationBootstrap {
       try { return (await conn.execute(sql, {})).rows ?? []; } finally { await conn.close().catch(() => {}); }
     };
     try {
-      const [rowsRes, closeRes] = await Promise.allSettled([run(DEFECTS_ANALYTICS_SQL), run(DEFECTS_CLOSE_DATES_SQL)]);
+      const [rowsRes, closeRes] = await Promise.allSettled([run(analyticsSqlWith(extra)), run(DEFECTS_CLOSE_DATES_SQL)]);
       if (rowsRes.status === 'rejected') throw rowsRes.reason;
       const rows = rowsRes.value as AnalyticsRawRow[];
       // Close dates are best-effort: if the audit query fails the dashboard
@@ -5005,7 +5096,7 @@ export class QcService implements OnApplicationBootstrap {
       } else {
         this.logger.warn(`Oracle defects close-dates (AUDIT_LOG) failed, using BG_VTS fallback: ${closeRes.reason?.message}`);
       }
-      const c = { at: Date.now(), rows, mock: false };
+      const c = { at: Date.now(), rows, mock: false, extra };
       analyticsCaches.set(currentQcProjectKey() ?? '', c);
       return c;
     } catch (err: any) {
@@ -5028,13 +5119,13 @@ export class QcService implements OnApplicationBootstrap {
   }
 
   async getDefectsAnalytics(user: { sub: string; role: string }, force = false): Promise<DefectsAnalyticsDto> {
-    const [{ rows, mock }, scope] = await Promise.all([this.loadAnalyticsRows(force), resolveDefectScope(user)]);
+    const [{ rows, mock, extra }, scope] = await Promise.all([this.loadAnalyticsRows(force), resolveDefectScope(user)]);
     const scoped = this.scopeAnalyticsRows(rows, scope);
     // QC logins → full names (same rule as PersonNamesInterceptor: show the
     // person, write the login). Unknown logins stay as-is.
     const users = await prisma.user.findMany({ where: { qcLogin: { not: null } }, select: { qcLogin: true, fullName: true } });
     const nameByLogin = new Map(users.map(u => [String(u.qcLogin).trim().toLowerCase(), u.fullName]));
-    return encodeDefectsAnalytics(scoped, login => nameByLogin.get(login.toLowerCase()) ?? login, mock);
+    return encodeDefectsAnalytics(scoped, login => nameByLogin.get(login.toLowerCase()) ?? login, mock, extra);
   }
 
   // Full rows for a drill-down page. Ids outside the caller's scope are
@@ -5066,6 +5157,24 @@ export class QcService implements OnApplicationBootstrap {
     // Keep the caller's order (e.g. "oldest first").
     const pos = new Map(permitted.map((id, i) => [id, i]));
     return out.sort((a, b) => (pos.get(a.id) ?? 0) - (pos.get(b.id) ?? 0));
+  }
+
+  async getDefectDims(): Promise<{ dims: DefectDimItem[] | null; fields: { key: string; label: string; kind: string }[] }> {
+    return { dims: await readDefectDims(), fields: defectDimFieldOptions() };
+  }
+
+  async setDefectDims(raw: any): Promise<{ dims: DefectDimItem[] | null; fields: { key: string; label: string; kind: string }[] }> {
+    const dims = raw?.reset ? null : cleanDefectDims(raw?.dims);
+    if (dims) {
+      await prisma.systemParam.upsert({
+        where: { key: DEFECT_DIMS_KEY },
+        update: { value: JSON.stringify({ dims }) },
+        create: { key: DEFECT_DIMS_KEY, value: JSON.stringify({ dims }), label: 'לוח תקלות — רשימת "הצג לפי" (שמות, סדר, ערכים שנוספו)' } as any,
+      });
+    } else {
+      await prisma.systemParam.deleteMany({ where: { key: DEFECT_DIMS_KEY } });
+    }
+    return { dims, fields: defectDimFieldOptions() };
   }
 
   async getDefectSlaConfig(): Promise<DefectSlaConfig> {

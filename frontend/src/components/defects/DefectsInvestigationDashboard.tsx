@@ -5,7 +5,7 @@ import { Card } from '../ui';
 import { BrandedDialog, DialogButton } from '../ui/BrandedDialog';
 import { useDialog } from '../../context/DialogContext';
 import {
-  DefectsAnalyticsDto, DefectSlaConfig, Dim, DIM_LABELS, DIM_ORDER, TIME_DIMS, SEVERITY_ORDER, AGE_BUCKETS,
+  DefectsAnalyticsDto, DefectSlaConfig, Dim, DIM_LABELS, TIME_DIMS, SEVERITY_ORDER, AGE_BUCKETS, DimItem, applyDimConfig,
   Filters, EMPTY_FILTERS, FILTER_DIMS, activeFilterCount, applyFilters, filterOptions, groupBy, capGroups,
   Group, todayNum, ageOf, isOpen, fmtMonth, fmtDay, trendBuckets, Granularity, countOpenAt, openAtIdx, slaStats, idsOf,
 } from './analytics';
@@ -56,6 +56,9 @@ export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, on
   const [gran, setGran] = useState<Granularity>('month');
   const [heatOpenOnly, setHeatOpenOnly] = useState(true);
   const [topTab, setTopTab] = useState<'system' | 'module' | 'release'>('system');
+  // "הצג לפי" list — names / order / hidden / added fields, set in ניהול (2026-10-10)
+  const [dims, setDims] = useState<DimItem[]>(() => applyDimConfig(null));
+  const shownDims = dims.filter(d => !d.hidden).map(d => d.key);
 
   const load = useCallback((refresh = false) => {
     setLoading(true); setError(null);
@@ -67,6 +70,7 @@ export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, on
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
     axios.get(`${API}/qc/defects-analytics/sla-config`, { headers }).then(r => setSla(r.data)).catch(() => setSla(null));
+    axios.get(`${API}/qc/defects-analytics/dims`, { headers }).then(r => setDims(applyDimConfig(r.data?.dims ?? null))).catch(() => {});
     axios.get(`${API}/qc/defects-analytics/layout`, { headers })
       .then(r => setPinned(Array.isArray(r.data?.pinned) ? r.data.pinned : []))
       .catch(() => setPinned([]));
@@ -88,12 +92,13 @@ export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, on
     const out: Partial<Record<Dim, Record<string, string>>> = {};
     if (!data) return out;
     const all = data.id.map((_, i) => i);
-    for (const dim of DIM_ORDER) {
+    // every value of the list, hidden ones too (a pinned chart may use one)
+    for (const { key: dim } of dims) {
       if (dim === 'severity') { out[dim] = { ...SEVERITY_CHART_COLOR }; continue; }
       out[dim] = colorMap(groupBy(data, all, dim, today).map(g => g.label));
     }
     return out;
-  }, [data, today]);
+  }, [data, today, dims]);
 
   const drill = (title: string, rowIdx: number[]) => {
     if (!data || rowIdx.length === 0) return;
@@ -195,7 +200,7 @@ export const DefectsInvestigationDashboard: React.FC<Props> = ({ token, role, on
       {/* Row 3 — dynamic chart + aging */}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
         <div className="min-w-0 xl:col-span-3"><Card padding={4}>
-          <ChartControls cfg={chart} setCfg={setChart}
+          <ChartControls cfg={chart} setCfg={setChart} choices={shownDims}
             onPin={() => {
               if (pinned.length >= MAX_PINNED) { dialog.alert(`ניתן להצמיד עד ${MAX_PINNED} גרפים`, 'הגבלה', 'warning'); return; }
               savePinned([...pinned, { ...chart, id: newId() }]);
@@ -308,8 +313,10 @@ const DynamicChart: React.FC<{
 };
 const ordinalDim = (d: Dim) => d === 'severity' || d === 'age' || TIME_DIMS.has(d);
 
-const ChartControls: React.FC<{ cfg: ChartConfig; setCfg: (c: ChartConfig) => void; onPin: () => void }> = ({ cfg, setCfg, onPin }) => {
+const ChartControls: React.FC<{ cfg: ChartConfig; setCfg: (c: ChartConfig) => void; onPin: () => void; choices: Dim[] }> = ({ cfg, setCfg, onPin, choices }) => {
   const isTime = TIME_DIMS.has(cfg.groupBy);
+  // a pinned chart opened here may use a value hidden since — keep it selectable
+  const withCurrent = (d: Dim) => (choices.includes(d) ? choices : [...choices, d]);
   const sel = 'rounded-md border border-border bg-card px-2 py-1 text-xs text-foreground';
   return (
     <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -318,7 +325,7 @@ const ChartControls: React.FC<{ cfg: ChartConfig; setCfg: (c: ChartConfig) => vo
         const g = e.target.value as Dim;
         setCfg({ ...cfg, groupBy: g, type: cfg.type === 'line' && !TIME_DIMS.has(g) ? 'bar' : cfg.type });
       }} className={sel}>
-        {DIM_ORDER.map(d => <option key={d} value={d}>{DIM_LABELS[d]}</option>)}
+        {withCurrent(cfg.groupBy).map(d => <option key={d} value={d}>{DIM_LABELS[d] ?? d}</option>)}
       </select>
       <div className="flex overflow-hidden rounded-md border border-border">
         {CHART_TYPES.map(t => {
@@ -336,7 +343,7 @@ const ChartControls: React.FC<{ cfg: ChartConfig; setCfg: (c: ChartConfig) => vo
         <>
           <span className="text-xs text-subtle-foreground">פילוח לפי</span>
           <select value={cfg.splitBy} onChange={e => setCfg({ ...cfg, splitBy: e.target.value as Dim })} className={sel}>
-            {DIM_ORDER.filter(d => d !== cfg.groupBy).map(d => <option key={d} value={d}>{DIM_LABELS[d]}</option>)}
+            {withCurrent(cfg.splitBy).filter(d => d !== cfg.groupBy).map(d => <option key={d} value={d}>{DIM_LABELS[d] ?? d}</option>)}
           </select>
         </>
       )}

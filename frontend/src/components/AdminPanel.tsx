@@ -10,6 +10,7 @@ import { OpenProdDefectsConfigPanel } from './quality-hub/OpenProdDefectsConfigP
 import { PermissionsMatrix } from './PermissionsMatrix';
 import { VersionTemplatesView } from './VersionTemplatesView';
 import { DefectFormLayoutEditor } from './quality-hub/DefectFormLayoutEditor';
+import { DefectsDashboardDimsPanel } from './defects/DefectsDashboardDimsPanel';
 import { QcWriteTestPanel } from './QcWriteTestPanel';
 import { DialogBrandBar, DIALOG_OVERLAY_BG, DIALOG_PANEL_SHADOW } from './ui/BrandedDialog';
 
@@ -75,7 +76,7 @@ interface QcRelease {
 }
 
 export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
-  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'ai' | 'quality-hub' | 'open-prod-defects-config' | 'defect-form-layout' | 'qc-write-test'>('users');
+  const [tab, setTab]         = useState<'users' | 'teams' | 'permissions' | 'qc-releases' | 'qc-users' | 'params' | 'templates' | 'versions' | 'ldap' | 'oracle' | 'email' | 'notifications' | 'qc-rest' | 'ai' | 'quality-hub' | 'open-prod-defects-config' | 'defect-form-layout' | 'defects-dashboard-dims' | 'qc-write-test'>('users');
   const [users, setUsers]     = useState<any[]>([]);
   const [teams, setTeams]     = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -628,6 +629,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
     { key: 'quality-hub',   label: 'איכות גרסה',    icon: '🏆' },
     { key: 'open-prod-defects-config', label: 'עמודות תקלות ייצור', icon: '📆' },
     { key: 'defect-form-layout', label: 'תבנית טופס תקלה', icon: '🧩' },
+    { key: 'defects-dashboard-dims', label: 'לוח תקלות – הצג לפי', icon: '📊' },
     { key: 'qc-write-test', label: 'בדיקת כתיבה ל-QC', icon: '✍️' },
   ] as const;
 
@@ -640,7 +642,7 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
   const TAB_CATEGORIES = [
     { key: 'users',        label: 'משתמשים והרשאות',    icon: '👤', tabs: ['users', 'teams', 'permissions'] },
     { key: 'integrations', label: 'אינטגרציות',          icon: '🔌', tabs: ['ldap', 'oracle', 'email', 'notifications', 'qc-rest', 'ai', 'qc-releases', 'qc-users', 'qc-write-test'] },
-    { key: 'config',       label: 'פרמטרים ותצורה',      icon: '⚙️', tabs: ['params', 'templates', 'quality-hub', 'open-prod-defects-config', 'defect-form-layout'] },
+    { key: 'config',       label: 'פרמטרים ותצורה',      icon: '⚙️', tabs: ['params', 'templates', 'quality-hub', 'open-prod-defects-config', 'defect-form-layout', 'defects-dashboard-dims'] },
     { key: 'maintenance',  label: 'תחזוקה',              icon: '🗑️', tabs: ['versions'] },
   ] as const;
   const activeCategory = TAB_CATEGORIES.find(c => (c.tabs as readonly string[]).includes(tab)) ?? TAB_CATEGORIES[0];
@@ -2497,6 +2499,11 @@ export const AdminPanel: React.FC<Props> = ({ token, onVersionsChanged }) => {
           {/* ── DEFECT VIEW/UPDATE FORM LAYOUT TAB (2026-10-04) ── */}
           {tab === 'defect-form-layout' && (
             <DefectFormLayoutEditor token={token} />
+          )}
+
+          {/* ── DEFECTS DASHBOARD "הצג לפי" LIST (2026-10-10) ── */}
+          {tab === 'defects-dashboard-dims' && (
+            <DefectsDashboardDimsPanel token={token} />
           )}
 
           {/* ── QC REST WRITE-BACK TEST TAB ── */}

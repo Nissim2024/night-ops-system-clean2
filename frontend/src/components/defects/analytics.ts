@@ -22,18 +22,35 @@ export interface DefectsAnalyticsDto {
   detected: (number | null)[];
   closed: (number | null)[];
   updated: (number | null)[];
+  // "הצג לפי" values an admin added (2026-10-10): per QC field, an index into extraDict[field]
+  extra?: Record<string, number[]>;
+  extraDict?: Record<string, string[]>;
 }
 
 export interface DefectSlaConfig { enabled: boolean; stopAt: 'closed'; targetDays: Record<string, number | null> }
 
-export type Dim = 'status' | 'severity' | 'team' | 'system' | 'module' | 'release' | 'owner' | 'creator' | 'openMonth' | 'closeMonth' | 'age';
+export type BuiltinDim = 'status' | 'severity' | 'team' | 'system' | 'module' | 'release' | 'owner' | 'creator' | 'openMonth' | 'closeMonth' | 'age';
+// + any QC defect field an admin added to "הצג לפי": `f:<field key>` (2026-10-10)
+export type Dim = BuiltinDim | `f:${string}`;
 
-export const DIM_LABELS: Record<Dim, string> = {
+export const DEFAULT_DIM_LABELS: Record<BuiltinDim, string> = {
   status: 'סטטוס', severity: 'חומרה', team: 'צוות מטפל', system: 'מערכת', module: 'מודול',
   release: 'גרסה', creator: 'יוצר התקלה', owner: 'מטפל נוכחי', openMonth: 'חודש פתיחה',
   closeMonth: 'חודש סגירה', age: 'גיל תקלה',
 };
-export const DIM_ORDER: Dim[] = ['status', 'severity', 'team', 'system', 'module', 'release', 'creator', 'owner', 'openMonth', 'closeMonth', 'age'];
+export const DIM_ORDER: BuiltinDim[] = ['status', 'severity', 'team', 'system', 'module', 'release', 'creator', 'owner', 'openMonth', 'closeMonth', 'age'];
+// The names in use — the admin's names once the "הצג לפי" list is loaded
+// (applyDimConfig); every title / drill-down label reads them from here.
+export const DIM_LABELS: Record<string, string> = { ...DEFAULT_DIM_LABELS };
+export interface DimItem { key: Dim; label: string; hidden?: boolean }
+export function applyDimConfig(dims: DimItem[] | null): DimItem[] {
+  for (const k of Object.keys(DIM_LABELS)) delete DIM_LABELS[k];
+  Object.assign(DIM_LABELS, DEFAULT_DIM_LABELS);
+  const list = dims && dims.length ? dims : DIM_ORDER.map(k => ({ key: k as Dim, label: DEFAULT_DIM_LABELS[k] }));
+  for (const d of list) if (d.label) DIM_LABELS[d.key] = d.label;
+  return list;
+}
+export const dimLabel = (d: Dim) => DIM_LABELS[d] ?? d;
 export const TIME_DIMS = new Set<Dim>(['openMonth', 'closeMonth']);
 
 export const SEVERITY_ORDER = ['Show Stopper', 'Severe', 'Medium', 'Low'];
@@ -101,6 +118,11 @@ export function valuesOf(d: DefectsAnalyticsDto, i: number, dim: Dim, today = to
     case 'openMonth': return [d.detected[i] != null ? monthKey(d.detected[i]!) : NONE_LABEL];
     case 'closeMonth': return [d.closed[i] != null ? monthKey(d.closed[i]!) : 'לא נסגרה'];
     case 'age':      return [ageBucket(ageOf(d, i, today)) ?? NONE_LABEL];
+    default: {
+      // an added QC field
+      const field = dim.slice(2);
+      return [dictLabel(d.extraDict?.[field] ?? [], d.extra?.[field]?.[i] ?? -1)];
+    }
   }
 }
 

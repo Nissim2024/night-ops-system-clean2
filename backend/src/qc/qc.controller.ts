@@ -131,6 +131,20 @@ export class QcController {
     return this.qcService.getDefectsByIdsScoped(req.user, Array.isArray(ids) ? ids : []);
   }
 
+  // "הצג לפי" list — names, order, hidden, added QC fields (2026-10-10)
+  @ModuleAccess('module:defects')
+  @Get('defects-analytics/dims')
+  getDefectDims() {
+    return this.qcService.getDefectDims();
+  }
+
+  @ModuleAccess('module:defects')
+  @Put('defects-analytics/dims')
+  setDefectDims(@Request() req: any, @Body() body: any) {
+    requireRole(req, ['ADMIN'], 'רק מנהל מערכת יכול לשנות את רשימת "הצג לפי"');
+    return this.qcService.setDefectDims(body ?? {});
+  }
+
   @ModuleAccess('module:defects')
   @Get('defects-analytics/sla-config')
   getDefectSlaConfig() {
