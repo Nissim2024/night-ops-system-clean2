@@ -28,9 +28,13 @@ interface Card {
 
 const fmt = (d: string | null | undefined) => d ? fmtDateTimeShared(d) : null;
 
-export const VersionHub: React.FC<Props> = ({ version, onNavigate, userRole, token, onVersionUpdated }) => {
+// No version → nothing. Kept outside the hub so its hooks always run in the
+// same order — the early return used to sit above them (rules-of-hooks; a
+// version switching to / from empty crashed the screen). Regression 2026-10-10.
+export const VersionHub: React.FC<Props> = props => (props.version ? <VersionHubBody {...props} /> : null);
+
+const VersionHubBody: React.FC<Props> = ({ version, onNavigate, userRole, token, onVersionUpdated }) => {
   const dialog = useDialog();
-  if (!version) return null;
 
   const s = version.status;
   const isManager = ['RELEASE_MANAGER', 'ADMIN'].includes(userRole);
