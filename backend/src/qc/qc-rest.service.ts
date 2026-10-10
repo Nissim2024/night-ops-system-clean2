@@ -1,6 +1,5 @@
 import { BadRequestException, HttpException, Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
-import { PrismaClient } from '@prisma/client';
 import { XMLParser } from 'fast-xml-parser';
 import { QG_CYCLE_DEFAULTS } from '../qa/qa-workplan.service';
 import { CycleType } from '../qa/qa.scheduler';
@@ -8,8 +7,8 @@ import { getQcPersonDirectory, getReleaseCycleOptions, getDefectLock } from './q
 import { appendQcComment, qcCommentSignature } from './qc-comment-entry';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 import { currentQcProject, projectParamKey, assertQcProjectWritable } from './qc-project-context';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 // QC REST field names — NOT the same as the Oracle physical column names
 // used everywhere else in this app (qc.service.ts's raw SQL). REST addresses

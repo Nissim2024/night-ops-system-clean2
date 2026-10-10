@@ -1,12 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import * as jwt from 'jsonwebtoken';
 import { JwksClient } from 'jwks-rsa';
 import { buildTaskActionCard } from './adaptive-card.util';
+import { prisma } from '../../prisma-client';
 
-const prisma = new PrismaClient();
 
 // Fixed Bot Framework endpoints — same for every Azure Bot regardless of tenant.
 const BOT_OPENID_METADATA_URL = 'https://login.botframework.com/v1/.well-known/openidconfiguration';

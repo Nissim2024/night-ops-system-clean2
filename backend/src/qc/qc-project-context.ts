@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from 'async_hooks';
 import { ForbiddenException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
 // ── Which QC project this request belongs to (2026-10-09) ───────────────────
 // The project is chosen at login and carried in the JWT (`qcProject`). A
@@ -9,7 +9,6 @@ import { PrismaClient } from '@prisma/client';
 // can ask currentQcProject() without passing it through every signature.
 // Background jobs (no request) get the default project, exactly as before.
 
-const prisma = new PrismaClient();
 
 export interface QcProjectRow {
   id: string; key: string; displayName: string; domain: string; restProject: string;

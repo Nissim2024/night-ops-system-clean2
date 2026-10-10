@@ -1,10 +1,9 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import { ReleaseIntelligenceService, defectCr } from './release-intelligence.service';
 import { QcService } from '../qc/qc.service';
 import { TEAM_COLUMNS } from '../common/team-columns';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 // ── תובנות גרסה — the version SUMMARY page (user, 2026-10-06) ───────────────
 // Shown at the version's summary meeting, behind its own permission

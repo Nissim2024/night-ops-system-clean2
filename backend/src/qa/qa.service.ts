@@ -1,11 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException, ConflictException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { scoreForCr, resolveSkillName, ScoringResult } from './qa.engine';
 import { addWorkDays, nextWorkDay, getFirstWorkDay, dateKey } from './qa.scheduler';
 import { VersionCrAssignmentsService } from '../version-cr-assignments/version-cr-assignments.service';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 // Only getChangeDetail (a pure CR_LIST file read) is used from here, so the
 // injected QC / QA-plan services (needed only by removeCr/restore) are absent.
 const vcaService = new VersionCrAssignmentsService(null as any, null as any);

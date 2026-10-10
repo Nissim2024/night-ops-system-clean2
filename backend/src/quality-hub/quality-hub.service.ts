@@ -1,6 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as path from 'path';
 import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
@@ -8,9 +7,7 @@ import { QcService, DefectDto } from '../qc/qc.service';
 
 import { aiComplete, parseAiJson } from '../ai/ai-provider';
 import { renderPrompt } from '../ai/ai-prompts';
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
+import { prisma } from '../prisma-client';
 
 interface ParsedRelease { seq: number; year: number; }
 

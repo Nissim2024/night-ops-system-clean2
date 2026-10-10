@@ -1,10 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { EventsGateway } from '../events/events.gateway';
-import { PrismaClient, TaskStatus, Priority } from '@prisma/client';
+import { TaskStatus, Priority } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 @Injectable()
 export class TasksService {

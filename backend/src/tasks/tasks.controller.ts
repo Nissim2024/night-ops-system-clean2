@@ -14,11 +14,11 @@ import {
 } from '@nestjs/common';
 import { TasksService } from './tasks.service';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { TaskStatus, Priority, PrismaClient } from '@prisma/client';
+import { TaskStatus, Priority } from '@prisma/client';
 import { PermissionsService } from '../permissions/permissions.service';
+import { prisma } from '../prisma-client';
 const permissions = new PermissionsService();
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 const MANAGERS       = ['RELEASE_MANAGER', 'ADMIN'];
 const LEADS_UP       = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];

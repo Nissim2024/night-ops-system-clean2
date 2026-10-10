@@ -1,5 +1,4 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -17,8 +16,8 @@ import {
   splitEffort,
 } from './qa.scheduler';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 const CYCLE_ORDER: CycleType[] = [
   'CYCLE_1', 'CYCLE_2', 'CYCLE_3', 'STAND_ALONE', 'UAT', 'REHEARSAL', 'GO_LIVE',

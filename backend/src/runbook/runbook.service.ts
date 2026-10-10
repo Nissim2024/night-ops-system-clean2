@@ -1,9 +1,8 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 interface RunbookEntry {
   stepIndex:      number;

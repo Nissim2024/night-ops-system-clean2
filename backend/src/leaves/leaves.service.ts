@@ -1,7 +1,6 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 // ── Holiday import helpers ────────────────────────────────────────────────────
 

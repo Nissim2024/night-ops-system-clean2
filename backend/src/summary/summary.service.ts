@@ -1,14 +1,11 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import {
   Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell,
   HeadingLevel, AlignmentType, BorderStyle, WidthType, ShadingType,
   LevelFormat,
 } from 'docx';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 const border = { style: BorderStyle.SINGLE, size: 1, color: 'CCCCCC' };
 const borders = { top: border, bottom: border, left: border, right: border };

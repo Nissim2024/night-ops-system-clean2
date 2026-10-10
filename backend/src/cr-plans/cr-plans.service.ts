@@ -1,7 +1,6 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS     = ['RELEASE_MANAGER', 'ADMIN'];
 const CR_APPROVERS = ['RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 

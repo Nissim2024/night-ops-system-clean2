@@ -1,10 +1,9 @@
 import { Controller, Get, Post, Body, HttpCode } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 // Read once from package.json (present at the container's WORKDIR root per
 // Dockerfile's `COPY --from=builder /app/package.json ./`) instead of a

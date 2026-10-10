@@ -2,14 +2,11 @@ import { qcMemo } from './qc-cache';
 import { currentQcProject, currentQcProjectKey, isValidOracleSchema } from './qc-project-context';
 import { QC_DEFECT_FIELDS } from './qc-defect-fields';
 import { Injectable, Logger, BadRequestException, OnApplicationBootstrap } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
 import { getAllowedTransitionsForUser } from './qc-workflow-transitions';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 // Exported for users.service.ts's syncQcUsers() — it used to read
 // process.env.ORACLE_ENABLED/ORACLE_USER/etc. directly, which is NEVER set

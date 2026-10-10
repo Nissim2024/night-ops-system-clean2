@@ -1,9 +1,8 @@
 import { Injectable, NotFoundException, ForbiddenException, ConflictException, Logger } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { getOracleConfig } from '../qc/qc.service';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 // Emails that should always be preserved as admin accounts
 const ADMIN_EMAILS = ['nissim@test.com', 'nisim@dev.com', 'hay@dev.com'];

@@ -1,10 +1,8 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaClient, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 import { ALL_CATALOG_KEYS, MODULE_KEYS, PERMISSION_CATALOG, expandGrants, normalizeGrants } from './permission-catalog';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 // Kept for existing importers: every grantable key (module + component).
 export const ALL_PERMISSIONS = ALL_CATALOG_KEYS;

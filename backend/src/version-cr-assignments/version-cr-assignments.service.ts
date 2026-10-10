@@ -1,6 +1,5 @@
 import { Injectable, Logger, ForbiddenException, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import * as fs from 'fs';
 import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES, TARGET_CR_PATTERN } from '../common/team-columns';
@@ -8,8 +7,8 @@ import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/sm
 import { QcService } from '../qc/qc.service';
 import { QaWorkPlanService } from '../qa/qa-workplan.service';
 import { defectCr } from '../release-intelligence/release-intelligence.service';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 const LEADS_UP = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN', 'CR_MANAGER'];
 

@@ -1,10 +1,7 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import { EventsGateway } from '../events/events.gateway';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 

@@ -1,9 +1,8 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import axios from 'axios';
 import { PushService, PushPayload } from '../push/push.service';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 const DEFAULTS = [
   { key: 'TEAMS_ENABLED',      label: 'Microsoft Teams — הפעל',        value: 'false', type: 'boolean' },

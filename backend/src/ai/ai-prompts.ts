@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
 // ── Every prompt DeployCenter sends to an AI (2026-10-09) ───────────────────
 // One catalog, visible and editable in AdminPanel → אינטגרציות → AI →
@@ -8,7 +8,6 @@ import { PrismaClient } from '@prisma/client';
 // AI_PROMPT_OVERRIDES; "שחזר ברירת מחדל" drops the override.
 // `wired: false` = the prompt is ready for review but no screen sends it yet.
 
-const prisma = new PrismaClient();
 
 export interface AiPromptDef {
   id: string;

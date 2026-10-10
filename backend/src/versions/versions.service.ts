@@ -1,14 +1,12 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
-import { PrismaClient, VersionStatus, Priority } from '@prisma/client';
+import { VersionStatus, Priority } from '@prisma/client';
 import { EmailService } from '../email/email.service';
 import { EventsGateway } from '../events/events.gateway';
 import { LIFECYCLE_INCLUDE, lifecycleFromVersionRow } from './version-lifecycle';
 
 import { aiComplete } from '../ai/ai-provider';
 import { renderPrompt } from '../ai/ai-prompts';
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
+import { prisma } from '../prisma-client';
 
 @Injectable()
 export class VersionsService {

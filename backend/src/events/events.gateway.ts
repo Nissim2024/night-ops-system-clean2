@@ -10,9 +10,8 @@ import {
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { NotificationsService } from '../notifications/notifications.service';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 const wsOrigins = [
   'http://localhost:3001',

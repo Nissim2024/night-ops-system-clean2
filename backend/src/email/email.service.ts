@@ -1,11 +1,8 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as nodemailer from 'nodemailer';
 import { createEvent, EventAttributes } from 'ics';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 const EMAIL_PARAMS = [
   { key: 'EMAIL_ENABLED',           value: 'false', label: 'שליחת מייל מופעל',            type: 'boolean' },

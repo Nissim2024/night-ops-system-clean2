@@ -1,11 +1,10 @@
 import { BadRequestException, Body, Controller, Delete, ForbiddenException, Get, Param, Patch, Post, Put, Request, UseGuards } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { QcRestService } from './qc-rest.service';
 import { getOracleConfig, testQcProjectOracle } from './qc.service';
 import { invalidateQcProjects, isValidOracleSchema, listQcProjects, runWithQcProject } from './qc-project-context';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 // QC projects admin (2026-10-09, multi-project): AdminPanel → אינטגרציות →
 // פרויקטי QC. ADMIN only. `displayName` is DeployCenter's own name for a

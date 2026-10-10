@@ -1,16 +1,15 @@
 import { Injectable, Logger, BadRequestException, NotFoundException } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
 import { QcService, resolveDefectPersonNames } from '../qc/qc.service';
 import { ROOT_CAUSE_TAXONOMY, ROOT_CAUSE_CATEGORIES } from './root-cause-taxonomy';
 import { GUIDED_TREE_NODES, GUIDED_TREE_LEAVES, GUIDED_TREE_START, buildAutoFiveWhy, GuidedTreePathEntry } from './guided-investigation-tree';
 
 import { aiComplete, parseAiJson } from '../ai/ai-provider';
 import { renderPrompt } from '../ai/ai-prompts';
+import { prisma } from '../prisma-client';
 const GUIDED_TIMING_VALUES = Object.keys(GUIDED_TREE_START);
 const GUIDED_REPRODUCIBILITY_VALUES = ['ALWAYS', 'PARTIAL', 'RANDOM'];
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 // ── AI prompt (Hebrew) ───────────────────────────────────────────────────────
 // Mirrors the same synchronous-call pattern already used in

@@ -1,12 +1,9 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import { TEAM_COLUMNS, EXCLUDED_CR_STATUSES } from '../common/team-columns';
 import { readQcFile, resolveQcFilePath, SmbAccessError } from '../qc-releases/smb-file-reader';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({
-  datasources: { db: { url: process.env.DATABASE_URL } },
-});
 
 // Row type by cell background color (primary detection)
 const COLOR_PHASE    = 'FF00B0F0';

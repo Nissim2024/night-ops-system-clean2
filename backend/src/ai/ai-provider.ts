@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import axios, { AxiosRequestConfig } from 'axios';
+import { prisma } from '../prisma-client';
 
 // ── One AI layer for every AI feature (2026-10-09) ──────────────────────────
 // Until now every feature called Claude directly (hardcoded model, its own
@@ -17,7 +17,6 @@ import axios, { AxiosRequestConfig } from 'axios';
 // Settings live in SystemParam AI_CONFIG (JSON). Keys are never sent back to
 // the browser in full. The old ANTHROPIC_API_KEY param still works.
 
-const prisma = new PrismaClient();
 
 export type AiProviderId = 'anthropic' | 'gemini' | 'openai' | 'azure';
 

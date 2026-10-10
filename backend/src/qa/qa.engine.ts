@@ -1,3 +1,4 @@
+import { prisma } from '../prisma-client';
 /**
  * QA Scoring & Assignment Engine — v2
  *
@@ -16,9 +17,7 @@
  *   ✔ Over-qualified penalty waived for HIGH/CRITICAL CRs
  */
 
-import { PrismaClient } from '@prisma/client';
 
-const prisma = new PrismaClient();
 
 // ── Public types ──────────────────────────────────────────────────────────────
 

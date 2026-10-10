@@ -1,11 +1,10 @@
 import { Injectable, BadRequestException, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import { PrismaClient } from '@prisma/client';
 import { QcService, TestCoverageDto, DefectDto, BugDashboardDto, DefectByCycleDto, CrCoverageDto, CycleQgTargetDto, CycleTestTotalsDto, resolveDefectPersonNames, bugStatusBucket, executedScriptCount, resolveDefectScope, isProductionEnvironment } from '../qc/qc.service';
 import { countWorkDays, nextWorkDay, isWorkDay, dateKey } from '../qa/qa.scheduler';
 import { Cr360Defect, Cr360PlanTeam, isOpenStatus, testsFinished, planStateOf, planOverall, crTrafficLight } from './cr-360';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 
 // QG thresholds — spec section 25: should come from QC Cycle Configuration,
 // not be hardcoded. No such configuration exists yet, so these are the

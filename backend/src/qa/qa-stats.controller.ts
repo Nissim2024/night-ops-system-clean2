@@ -1,8 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 @UseGuards(JwtGuard)
 @Controller('qa-stats')

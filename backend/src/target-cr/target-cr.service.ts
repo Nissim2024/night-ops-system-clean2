@@ -1,10 +1,9 @@
 import { Injectable, ForbiddenException, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
 import { QcService, TargetDefectDto, getQcUserDirectory } from '../qc/qc.service';
 import { CrPlansService } from '../cr-plans/cr-plans.service';
 import { TARGET_CR_PATTERN } from '../common/team-columns';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 const MANAGERS = ['RELEASE_MANAGER', 'ADMIN'];
 
 @Injectable()

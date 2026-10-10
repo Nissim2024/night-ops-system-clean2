@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '../prisma-client';
 
-const prisma = new PrismaClient();
 
 const LDAP_PARAM_DEFAULTS = [
   { key: 'LDAP_ENABLED',       value: 'false',                           label: 'LDAP / AD: מופעל (true/false)',      type: 'text'     },
