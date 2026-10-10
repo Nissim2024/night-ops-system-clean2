@@ -62,6 +62,7 @@ import { SystemParamsService } from './system-params/system-params.service';
 import { SuggestedRisksService } from './suggested-risks/suggested-risks.service';
 import { PrismaClient } from '@prisma/client';
 import helmet from 'helmet';
+import { PrismaErrorsFilter } from './prisma-errors.filter';
 import { runWithQcProject, ensureDefaultQcProject, listQcProjects } from './qc/qc-project-context';
 
 async function validateStartup(): Promise<void> {
@@ -194,6 +195,8 @@ async function bootstrap() {
       .catch(() => runWithQcProject(projectKey, next));
   });
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  // bad input that reaches Prisma → 400 / 404, not a bare 500 (regression 2026-10-10)
+  app.useGlobalFilters(new PrismaErrorsFilter());
 
   const extraOrigins = process.env.CORS_ORIGINS
     ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
