@@ -172,9 +172,27 @@ export class SuggestedRisksService {
     }
   }
 
-  listAll() {
-    return prisma.suggestedRisk.findMany({
-      orderBy: [{ status: 'asc' }, { severity: 'desc' }, { createdAt: 'asc' }],
+  // Decided PER VERSION (user, 2026-10-10): each suggestion comes with its
+  // status in the given version, plus the other versions it was already moved
+  // into. A legacy global rejection (before per-version decisions) still
+  // counts as rejected everywhere.
+  async listForVersion(versionId?: string) {
+    const rows = await prisma.suggestedRisk.findMany({
+      orderBy: [{ severity: 'desc' }, { createdAt: 'asc' }],
+      include: { decisions: { include: { version: { select: { id: true, name: true } } } } },
+    });
+    return rows.map(({ decisions, ...s }) => {
+      const mine = versionId ? decisions.find(d => d.versionId === versionId) : undefined;
+      return {
+        ...s,
+        status: mine ? mine.status : s.status === 'REJECTED' ? 'REJECTED' : 'PENDING',
+        legacyRejected: !mine && s.status === 'REJECTED',
+        promotedRiskId: mine?.promotedRiskId ?? null,
+        decidedAt: mine?.createdAt ?? null,
+        promotedElsewhere: decisions
+          .filter(d => d.status === 'PROMOTED' && d.versionId !== versionId)
+          .map(d => ({ versionId: d.versionId, versionName: d.version.name })),
+      };
     });
   }
 
@@ -186,7 +204,8 @@ export class SuggestedRisksService {
     if (!versionId) throw new BadRequestException('יש לבחור גרסה להעברת הסיכון אליה');
     const candidate = await prisma.suggestedRisk.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundException('הצעת הסיכון לא נמצאה');
-    if (candidate.status !== 'PENDING') throw new BadRequestException('הצעה זו כבר טופלה');
+    const decided = await prisma.suggestedRiskDecision.findUnique({ where: { suggestedRiskId_versionId: { suggestedRiskId: id, versionId } } });
+    if (decided) throw new BadRequestException('ההצעה כבר טופלה בגרסה הזו');
 
     const risk = await prisma.releaseRisk.create({
       data: {
@@ -200,17 +219,19 @@ export class SuggestedRisksService {
         createdBy: userId,
       },
     });
-    await prisma.suggestedRisk.update({
-      where: { id },
-      data: { status: 'PROMOTED', promotedRiskId: risk.id },
+    await prisma.suggestedRiskDecision.create({
+      data: { suggestedRiskId: id, versionId, status: 'PROMOTED', promotedRiskId: risk.id, decidedBy: userId },
     });
     return risk;
   }
 
-  async reject(id: string) {
+  // rejected for this version only
+  async reject(id: string, versionId: string, userId: string) {
+    if (!versionId) throw new BadRequestException('יש לבחור גרסה');
     const candidate = await prisma.suggestedRisk.findUnique({ where: { id } });
     if (!candidate) throw new NotFoundException('הצעת הסיכון לא נמצאה');
-    if (candidate.status !== 'PENDING') throw new BadRequestException('הצעה זו כבר טופלה');
-    return prisma.suggestedRisk.update({ where: { id }, data: { status: 'REJECTED' } });
+    const decided = await prisma.suggestedRiskDecision.findUnique({ where: { suggestedRiskId_versionId: { suggestedRiskId: id, versionId } } });
+    if (decided) throw new BadRequestException('ההצעה כבר טופלה בגרסה הזו');
+    return prisma.suggestedRiskDecision.create({ data: { suggestedRiskId: id, versionId, status: 'REJECTED', decidedBy: userId } });
   }
 }

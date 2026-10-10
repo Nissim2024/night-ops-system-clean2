@@ -154,7 +154,7 @@ model Team {
   // Null/empty = not mapped yet — the create-defect form's Responsibility/
   // Environment Component dropdowns simply omit that team/have no options
   // for it until an admin fills this in, rather than guessing.
-  qcResponsibilityValue  String?
+  qcResponsibilityValue   String?
   qcEnvironmentComponents String[] @default([])
 
   // What kind of team this is — dev/QA/ops (2026-09-26, home-page role spec).
@@ -244,31 +244,32 @@ model Version {
   qcReleaseId String?
   qcRelease   QcRelease? @relation(fields: [qcReleaseId], references: [id])
 
-  creator              User                  @relation("createdByUser", fields: [createdBy], references: [id])
-  approver             User?                 @relation("approvedByUser", fields: [approvedBy], references: [id])
-  scopeApprover        User?                 @relation("scopeApprovedByUser", fields: [scopeApprovedBy], references: [id])
-  phases               Phase[]
-  submissions          TeamSubmission[]
-  nightSummary         NightSummary?
-  rehearsalSummary     RehearsalSummary?
-  rehearsalArchives    RehearsalRunArchive[]
-  taskProposals        TaskProposal[]
-  crPlans              CrPlan[]
-  qaAssignments        QaAssignment[]
-  versionCrAssignments VersionCrAssignment[]
-  qaWorkPlan           QaWorkPlan?
-  releaseRisks         ReleaseRisk[]
-  dailyBlockers        DailyBlocker[]
-  dailyActionItems     DailyActionItem[]
-  dailyQaSnapshots     DailyQaSnapshot[]
-  releaseInsights      ReleaseInsight[]
-  releaseInsightHides   ReleaseInsightHide[]
-  releaseHealth        ReleaseHealth?
-  releaseForecast      ReleaseForecast?
-  goNoGoDecision       GoNoGoDecision?
-  notices              VersionNotice[]
-  incidents            Incident[]
-  crChangeEvents       CrChangeEvent[]
+  creator                User                    @relation("createdByUser", fields: [createdBy], references: [id])
+  approver               User?                   @relation("approvedByUser", fields: [approvedBy], references: [id])
+  scopeApprover          User?                   @relation("scopeApprovedByUser", fields: [scopeApprovedBy], references: [id])
+  phases                 Phase[]
+  submissions            TeamSubmission[]
+  nightSummary           NightSummary?
+  rehearsalSummary       RehearsalSummary?
+  rehearsalArchives      RehearsalRunArchive[]
+  taskProposals          TaskProposal[]
+  crPlans                CrPlan[]
+  qaAssignments          QaAssignment[]
+  versionCrAssignments   VersionCrAssignment[]
+  qaWorkPlan             QaWorkPlan?
+  releaseRisks           ReleaseRisk[]
+  dailyBlockers          DailyBlocker[]
+  dailyActionItems       DailyActionItem[]
+  dailyQaSnapshots       DailyQaSnapshot[]
+  releaseInsights        ReleaseInsight[]
+  releaseInsightHides    ReleaseInsightHide[]
+  releaseHealth          ReleaseHealth?
+  releaseForecast        ReleaseForecast?
+  goNoGoDecision         GoNoGoDecision?
+  notices                VersionNotice[]
+  incidents              Incident[]
+  crChangeEvents         CrChangeEvent[]
+  suggestedRiskDecisions SuggestedRiskDecision[]
 }
 
 model Phase {
@@ -983,17 +984,17 @@ model QaWorkPlanChangeLog {
 }
 
 model QaCycle {
-  id           String   @id @default(uuid())
-  workPlanId   String
-  cycleType    String // CYCLE_1 | CYCLE_2 | CYCLE_3 | STAND_ALONE | REHEARSAL | GO_LIVE
-  plannedStart DateTime
-  plannedEnd   DateTime
-  notes        String?
+  id                String   @id @default(uuid())
+  workPlanId        String
+  cycleType         String // CYCLE_1 | CYCLE_2 | CYCLE_3 | STAND_ALONE | REHEARSAL | GO_LIVE
+  plannedStart      DateTime
+  plannedEnd        DateTime
+  notes             String?
   // Real QC RELEASE_CYCLES.RCYC_CYCLE_ID once this cycle is written to QC
   // ("צור ב-QC" step, spec-qc-full-integration.md §3.4) — generic across every
   // cycleType, unlike QcRelease's goLiveCycleId/rehearsalCycleId which only
   // ever covered two specific ones. Null until published.
-  qcCycleId    Int?
+  qcCycleId         Int?
   // QG Threshold High/Medium/Low + Environment (2026-09-23) — QC's real
   // release-cycle entity requires user-01 (QG Threshold High) at creation
   // time; publishVersionRelease was omitting all 4 fields entirely, which is
@@ -1006,8 +1007,8 @@ model QaCycle {
   qgThresholdMedium Int?
   qgThresholdLow    Int?
   qgEnvironment     String?
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
 
   workPlan QaWorkPlan    @relation(fields: [workPlanId], references: [id], onDelete: Cascade)
   tasks    QaCycleTask[]
@@ -1160,6 +1161,27 @@ model SuggestedRisk {
   promotedRiskId String?
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
+
+  decisions SuggestedRiskDecision[]
+}
+
+// A suggestion is decided PER VERSION (user, 2026-10-10): the same risk pattern
+// recurs in every version, so moving it into ITv06's table must not hide it
+// from ITv08. One row per (suggestion, version). SuggestedRisk.status keeps
+// only legacy global rejections made before this table existed.
+model SuggestedRiskDecision {
+  id              String              @id @default(uuid())
+  suggestedRiskId String
+  versionId       String
+  status          SuggestedRiskStatus // PROMOTED | REJECTED
+  promotedRiskId  String?
+  decidedBy       String?
+  createdAt       DateTime            @default(now())
+
+  suggestedRisk SuggestedRisk @relation(fields: [suggestedRiskId], references: [id], onDelete: Cascade)
+  version       Version       @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@unique([suggestedRiskId, versionId])
 }
 
 // Fixed type catalog from the Daily QA spec's "Blockers Center" (area 4) —

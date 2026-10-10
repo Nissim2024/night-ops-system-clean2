@@ -6,7 +6,9 @@ const API = process.env.REACT_APP_API_URL || `${window.location.protocol}//${win
 interface SuggestedRisk {
   id: string; title: string; sourceArea: string; signal: string;
   severity: string; probability: string | null; impact: string | null; mitigation: string | null;
-  status: 'PENDING' | 'PROMOTED' | 'REJECTED'; promotedRiskId: string | null;
+  // status IN THE SELECTED VERSION (2026-10-10) + where else it was already moved
+  status: 'PENDING' | 'PROMOTED' | 'REJECTED'; promotedRiskId: string | null; legacyRejected?: boolean;
+  promotedElsewhere: { versionId: string; versionName: string }[];
   createdAt: string;
 }
 
@@ -15,7 +17,7 @@ interface SuggestedRisk {
 const SEVERITY_LABEL: Record<string, string> = { CRITICAL: 'קריטי', HIGH: 'גבוהה', MEDIUM: 'בינוני', LOW: 'נמוך' };
 const PROBABILITY_LABEL: Record<string, string> = { HIGH: 'גבוה', MEDIUM: 'בינוני', LOW: 'נמוך' };
 const SEVERITY_COLOR_CLASS: Record<string, string> = { CRITICAL: 'text-danger', HIGH: 'text-warning', MEDIUM: 'text-warning', LOW: 'text-subtle-foreground' };
-const STATUS_LABEL: Record<string, string> = { PENDING: 'ממתין להחלטה', PROMOTED: 'הועבר לטבלה הראשית', REJECTED: 'נדחה' };
+const STATUS_LABEL: Record<string, string> = { PENDING: 'ממתין להחלטה', PROMOTED: 'הועבר לטבלה הראשית', REJECTED: 'נדחה בגרסה זו' };
 const STATUS_BADGE_CLASS: Record<string, string> = {
   PENDING: 'text-subtle-foreground bg-muted border-border',
   PROMOTED: 'text-success bg-success-bg border-success/40',
@@ -27,7 +29,11 @@ const STATUS_BADGE_CLASS: Record<string, string> = {
 // createRisk itself requires (matches suggested-risks.controller.ts).
 const RISK_WRITERS = ['TEAM_LEAD', 'RELEASE_MANAGER', 'ADMIN'];
 
-interface Props { token: string; versionId?: string; versionName?: string; role: string; }
+interface Props {
+  token: string; versionId?: string; versionName?: string; role: string;
+  /** open a version's risk table (the badge / "הועבר גם ל…" links) */
+  onOpenRisks?: (versionId: string) => void;
+}
 
 // Staging table for AI-identified candidate risks (spec confirmed 2026-09-05)
 // — "כרגע רק לבחינה": a fixed, hand-curated list (see suggested-risks.service.ts's
@@ -40,7 +46,7 @@ interface Props { token: string; versionId?: string; versionName?: string; role:
 // risk feed and the health-score KPI. Rejecting just marks it done reviewing,
 // no further effect. Both actions are final (no un-reject/un-promote here —
 // same "final decision" shape as RiskManagementView's own close-risk action).
-export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionName, role }) => {
+export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionName, role, onOpenRisks }) => {
   const headers = { Authorization: `Bearer ${token}` };
   const [rows, setRows] = useState<SuggestedRisk[]>([]);
   const [loading, setLoading] = useState(false);
@@ -51,12 +57,12 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
 
   const load = useCallback(() => {
     setLoading(true);
-    axios.get(`${API}/suggested-risks`, { headers })
+    axios.get(`${API}/suggested-risks`, { headers, params: versionId ? { versionId } : undefined })
       .then(res => setRows(res.data ?? []))
       .catch(() => setRows([]))
       .finally(() => setLoading(false));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token]);
+  }, [token, versionId]);
   useEffect(() => { load(); }, [load]);
 
   const promote = async (id: string) => {
@@ -71,10 +77,11 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
   };
 
   const reject = async (id: string) => {
+    if (!versionId) { setError('בחר גרסה מתפריט הצד — הדחייה חלה על הגרסה שנבחרה.'); return; }
     setError(null);
     setBusyId(id);
     try {
-      await axios.post(`${API}/suggested-risks/${id}/reject`, {}, { headers });
+      await axios.post(`${API}/suggested-risks/${id}/reject`, { versionId }, { headers });
       load();
     } catch (e: any) { setError(e?.response?.data?.message ?? 'הפעולה נכשלה'); }
     setBusyId(null);
@@ -111,10 +118,28 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
           ) : (
             <span className="text-subtle-foreground">{STATUS_LABEL.PENDING}</span>
           )
+        ) : r.status === 'PROMOTED' && versionId && onOpenRisks ? (
+          <button onClick={() => onOpenRisks(versionId)} title="פתח בטבלת ניהול הסיכונים של הגרסה"
+            className={`cursor-pointer font-semibold rounded-full px-2.5 py-0.5 border ${STATUS_BADGE_CLASS.PROMOTED}`}>
+            {STATUS_LABEL.PROMOTED}{versionName ? ` · ${versionName}` : ''} ←
+          </button>
         ) : (
           <span className={`inline-block font-semibold rounded-full px-2.5 py-0.5 border ${STATUS_BADGE_CLASS[r.status]}`}>
-            {STATUS_LABEL[r.status]}
+            {r.legacyRejected ? 'נדחה (בכל הגרסאות)' : STATUS_LABEL[r.status]}
           </span>
+        )}
+        {r.promotedElsewhere.length > 0 && (
+          <div className="mt-1 text-[11px] text-subtle-foreground">
+            הועבר גם ל:{' '}
+            {r.promotedElsewhere.map((p, i) => (
+              <React.Fragment key={p.versionId}>
+                {i > 0 && ', '}
+                {onOpenRisks
+                  ? <button onClick={() => onOpenRisks(p.versionId)} className="cursor-pointer border-none bg-transparent p-0 text-[11px] font-semibold text-primary" title="פתח את טבלת הסיכונים של הגרסה">{p.versionName}</button>
+                  : <b>{p.versionName}</b>}
+              </React.Fragment>
+            ))}
+          </div>
         )}
       </td>
     </tr>
@@ -127,7 +152,7 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
         <div className="text-xs text-subtle-foreground mt-0.5">
           רשימת סיכונים פוטנציאליים שזוהו מתוך יכולות המערכת הקיימות — לבחינה בלבד. סיכון שתבחר להעביר ייווצר
           בטבלת "ניהול סיכונים" הרגילה{versionName ? ` עבור ${versionName}` : ''}, ומשם הוא כבר מזין את הודעות
-          הבית ואת ה-KPI, בדיוק כמו סיכון שנוצר ידנית.
+          הבית ואת ה-KPI, בדיוק כמו סיכון שנוצר ידנית. ההחלטה (העברה / דחייה) נשמרת לכל גרסה בנפרד.
         </div>
       </div>
 
@@ -157,7 +182,7 @@ export const SuggestedRisksView: React.FC<Props> = ({ token, versionId, versionN
             )}
             {pending.map(renderRow)}
             {decided.length > 0 && pending.length > 0 && (
-              <tr><td colSpan={8} className={`${tdClass} border-b-0 px-2.5 py-1 text-subtle-foreground text-xs`}>הוחלט עליהן קודם:</td></tr>
+              <tr><td colSpan={8} className={`${tdClass} border-b-0 px-2.5 py-1 text-subtle-foreground text-xs`}>הוחלט עליהן{versionName ? ` בגרסה ${versionName}` : ''}:</td></tr>
             )}
             {decided.map(renderRow)}
           </tbody>

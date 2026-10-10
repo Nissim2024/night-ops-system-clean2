@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Param, Body, Request, UseGuards, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Param, Body, Query, Request, UseGuards, ForbiddenException } from '@nestjs/common';
 import { JwtGuard } from '../auth/jwt/jwt.guard';
 import { SuggestedRisksService } from './suggested-risks.service';
 
@@ -16,9 +16,10 @@ function requireRole(req: any, roles: string[], msg = 'אין הרשאה לבצ�
 export class SuggestedRisksController {
   constructor(private service: SuggestedRisksService) {}
 
+  // status per version (2026-10-10)
   @Get()
-  listAll() {
-    return this.service.listAll();
+  list(@Query('versionId') versionId?: string) {
+    return this.service.listForVersion(versionId);
   }
 
   @Post(':id/promote')
@@ -28,8 +29,8 @@ export class SuggestedRisksController {
   }
 
   @Post(':id/reject')
-  reject(@Param('id') id: string, @Request() req: any) {
+  reject(@Param('id') id: string, @Body() body: { versionId: string }, @Request() req: any) {
     requireRole(req, RISK_WRITERS);
-    return this.service.reject(id);
+    return this.service.reject(id, body?.versionId, req.user.sub);
   }
 }

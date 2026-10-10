@@ -962,7 +962,8 @@ export const ManagerDashboard: React.FC<Props> = ({ token, onLogout, deepLink, o
             <RiskManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'suggested-risks' && (
-            <SuggestedRisksView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role} />
+            <SuggestedRisksView token={token} versionId={selectedVersionId || undefined} versionName={selectedVersion?.name} role={payload.role}
+              onOpenRisks={vid => { setSelectedVersionId(vid); setActiveRiView('risks'); }} />
           )}
           {activeModule === 'release-intelligence' && activeRiView === 'daily-qa' && (
             <DailyQaManagementView token={token} versionId={selectedVersionId || undefined} role={payload.role} />
